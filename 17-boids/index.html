@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>17 · Boids Flocking · frontend-lab</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: #05060d; overflow: hidden; color: #eef2ff;
+    font: 15px/1.6 -apple-system, "Segoe UI", "PingFang SC", system-ui, sans-serif; }
+  #cv { position: fixed; inset: 0; display: block; }
+  .ui { position: fixed; inset: 0; z-index: 2; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 32px; }
+  .head { display: flex; align-items: baseline; gap: 14px; }
+  .num { font-size: 13px; color: #18d6c9; letter-spacing: .2em; font-weight: 700; }
+  .head h1 { font-size: clamp(28px, 5vw, 52px); font-weight: 800; letter-spacing: -.03em;
+    background: linear-gradient(120deg, #fff, #7c5cff 60%, #18d6c9); -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 6px 24px rgba(0,0,0,.4)); }
+  .head .sub { color: #8b93b5; font-size: 14px; }
+  .meta { display: flex; gap: 10px; flex-wrap: wrap; }
+  .meta span { font-size: 11.5px; color: #b9c0e0; border: 1px solid rgba(255,255,255,.16); padding: 4px 10px; border-radius: 999px; backdrop-filter: blur(6px); background: rgba(0,0,0,.2); }
+  .hint { color: #5a637f; font-size: 12.5px; text-align: center; }
+  a.top { position: fixed; top: 18px; right: 24px; z-index: 5; color: #8b93b5; font-size: 13px; text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,.2); }
+  a.top:hover { color: #fff; }
+  @media (max-width: 640px) { .ui { padding: 20px; } .meta { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<a class="top" href="../">← lab 首页</a>
+<div class="ui">
+  <div class="head">
+    <span class="num">17</span>
+    <h1>Boids Flocking</h1>
+    <span class="sub">分离 / 对齐 / 聚合 · 鼠标吸附</span>
+  </div>
+  <div class="meta">
+    <span>Canvas 2D</span><span>~180 boids</span><span>O(n²) 邻域</span><span>edge wrap</span><span>hue by heading</span>
+  </div>
+  <div class="hint">按住鼠标吸附群飞,松开恢复自由 flocking</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var cv = document.getElementById("cv");
+  var ctx = cv.getContext("2d");
+  var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var DPR = Math.min(devicePixelRatio || 1, 2);
+  var W = 0, H = 0;
+
+  // 参数
+  var N = reduce ? 90 : 180;
+  var SEP = 22, ALI = 48, COH = 60;       // 三规则半径
+  var MAXS = reduce ? 1.0 : 2.4, MINS = 0.6;
+  var W_SEP = 1.6, W_ALI = 1.0, W_COH = 0.8;
+
+  function v(x, y) { return { x: x, y: y }; }
+  function limit(a, m) { var s = Math.hypot(a.x, a.y); if (s > m && s > 0) { a.x = a.x / s * m; a.y = a.y / s * m; } return a; }
+
+  var boids = [];
+  function reset() {
+    boids = [];
+    for (var i = 0; i < N; i++) {
+      var ang = Math.random() * 6.2832;
+      boids.push({ p: v(Math.random() * W, Math.random() * H), v: v(Math.cos(ang) * MAXS, Math.sin(ang) * MAXS) });
+    }
+  }
+  function resize() {
+    W = innerWidth; H = innerHeight;
+    cv.width = W * DPR; cv.height = H * DPR;
+    cv.style.width = W + "px"; cv.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    reset();
+  }
+  resize(); addEventListener("resize", resize);
+
+  var mouse = { x: -9999, y: -9999, on: false };
+  addEventListener("pointermove", function (e) { mouse.x = e.clientX; mouse.y = e.clientY; mouse.on = true; }, { passive: true });
+  addEventListener("pointerdown", function (e) { mouse.x = e.clientX; mouse.y = e.clientY; mouse.on = true; mouse.down = true; }, { passive: true });
+  addEventListener("pointerup", function () { mouse.down = false; });
+  addEventListener("pointerout", function () { mouse.on = false; mouse.down = false; });
+
+  function wrap(p) {
+    if (p.x < -10) p.x += W + 20; else if (p.x > W + 10) p.x -= W + 20;
+    if (p.y < -10) p.y += H + 20; else if (p.y > H + 10) p.y -= H + 20;
+  }
+
+  function frame() {
+    ctx.fillStyle = "rgba(5,6,13,0.22)";
+    ctx.fillRect(0, 0, W, H);
+
+    for (var i = 0; i < boids.length; i++) {
+      var b = boids[i];
+      var sep = v(0, 0), ali = v(0, 0), coh = v(0, 0);
+      var ns = 0, na = 0, nc = 0;
+      for (var j = 0; j < boids.length; j++) {
+        if (i === j) continue;
+        var o = boids[j];
+        var dx = o.p.x - b.p.x, dy = o.p.y - b.p.y;
+        var d2 = dx * dx + dy * dy;
+        if (d2 < SEP * SEP && d2 > 0) { sep.x -= dx / d2; sep.y -= dy / d2; ns++; }
+        if (d2 < ALI * ALI) { ali.x += o.v.x; ali.y += o.v.y; na++; }
+        if (d2 < COH * COH) { coh.x += o.p.x; coh.y += o.p.y; nc++; }
+      }
+      var acc = v(0, 0);
+      if (ns) { sep.x /= ns; sep.y /= ns; limit(sep, MAXS); sep.x -= b.v.x; sep.y -= b.v.y; limit(sep, MAXS); acc.x += sep.x * W_SEP; acc.y += sep.y * W_SEP; }
+      if (na) { ali.x /= na; ali.y /= na; limit(ali, MAXS); ali.x -= b.v.x; ali.y -= b.v.y; limit(ali, MAXS); acc.x += ali.x * W_ALI; acc.y += ali.y * W_ALI; }
+      if (nc) { coh.x = coh.x / nc - b.p.x; coh.y = coh.y / nc - b.p.y; limit(coh, MAXS); coh.x -= b.v.x; coh.y -= b.v.y; limit(coh, MAXS); acc.x += coh.x * W_COH; acc.y += coh.y * W_COH; }
+
+      // 鼠标:按住强吸引,默认轻微排斥(避免堆压)
+      if (mouse.on) {
+        var mdx = mouse.x - b.p.x, mdy = mouse.y - b.p.y;
+        var md = Math.hypot(mdx, mdy);
+        if (md < 240 && md > 0) {
+          var f = mouse.down ? 0.9 : -0.5;
+          acc.x += (mdx / md) * f;
+          acc.y += (mdy / md) * f;
+        }
+      }
+
+      b.v.x += acc.x; b.v.y += acc.y;
+      limit(b.v, MAXS);
+      var sp = Math.hypot(b.v.x, b.v.y);
+      if (sp < MINS && sp > 0) { b.v.x = b.v.x / sp * MINS; b.v.y = b.v.y / sp * MINS; }
+      b.p.x += b.v.x; b.p.y += b.v.y;
+      wrap(b.p);
+    }
+
+    // 绘制:三角箭头,按朝向着色
+    for (var k = 0; k < boids.length; k++) {
+      var b2 = boids[k];
+      var ang = Math.atan2(b2.v.y, b2.v.x);
+      var hue = (((ang / 6.2832) + 1) % 1) * 360;       // 0..360
+      // 映射到品牌色区间:青(180)→紫(270)→粉(330)
+      var hh = 180 + (((ang / 6.2832) + 1) % 1) * 150;
+      ctx.save();
+      ctx.translate(b2.p.x, b2.p.y);
+      ctx.rotate(ang);
+      ctx.fillStyle = "hsla(" + hh + ",90%,62%,0.9)";
+      ctx.beginPath();
+      ctx.moveTo(7, 0);
+      ctx.lineTo(-4, 3.2);
+      ctx.lineTo(-4, -3.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    requestAnimationFrame(frame);
+  }
+  void hue;
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
