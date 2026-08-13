@@ -21,9 +21,21 @@
   .lede { color: #8b93b5; margin: 14px 0 12px; max-width: 60ch; font-size: 16px; }
   .links { color: #5a637f; font-size: 12.5px; margin-bottom: 36px; }
   .links a { color: #18d6c9; text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,.2); margin-right: 14px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 18px; }
-  a.demo { display: block; padding: 24px; border-radius: 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); text-decoration: none; color: inherit; transition: transform .18s, border-color .18s, background .18s; backdrop-filter: blur(8px); }
-  a.demo:hover { transform: translateY(-3px); border-color: rgba(124,92,255,.6); background: rgba(124,92,255,.08); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 18px; position: relative; }
+  a.demo { display: block; padding: 24px; border-radius: 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); text-decoration: none; color: inherit; transition: transform .18s, background .18s; backdrop-filter: blur(8px); }
+  a.demo:hover { transform: translateY(-2px); background: rgba(124,92,255,.08); }
+  /* 焦点环:渐变描边、透明心(mask),鼠标在卡片间移动时平滑滑过去 */
+  .focus-ring {
+    position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 5;
+    border-radius: 18px; border: 2px solid transparent; opacity: 0;
+    background: linear-gradient(120deg, #7c5cff, #18d6c9, #ff2e9a);
+    -webkit-mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    box-shadow: 0 0 24px rgba(124,92,255,.30);
+    transition: transform .32s cubic-bezier(.22,.9,.3,1), width .32s cubic-bezier(.22,.9,.3,1), height .32s cubic-bezier(.22,.9,.3,1), opacity .18s;
+  }
+  @media (hover: none) { .focus-ring { display: none; } }
   .demo .n { font-size: 12px; color: #18d6c9; letter-spacing: .15em; font-weight: 700; }
   .demo h2 { font-size: 20px; margin: 8px 0 6px; }
   .demo p { color: #8b93b5; font-size: 13.5px; }
@@ -176,6 +188,12 @@
         <p>Gray-Scott 反应扩散,9 点拉普拉斯,预设珊瑚/迷宫/条纹,鼠标涂抹播种。</p>
         <div class="tags"><span>Canvas 2D</span><span>Gray-Scott</span><span>laplacian</span><span>emergent</span></div>
       </a>
+      <a class="demo" href="23-solar-orrery/">
+        <div class="n">23</div>
+        <h2>Solar Orrery 太阳系</h2>
+        <p>8 行星按真实轨道周期比例公转,土星环遮挡,悬停高亮,滚轮缩放+调速。</p>
+        <div class="tags"><span>Canvas 2D</span><span>orrery</span><span>orbital</span><span>depth sort</span></div>
+      </a>
     </div>
     <footer>frontend-lab · 炫酷效果集 · 部署于 GitHub Pages + Vercel · <a href="https://github.com/FE-ng/frontend-lab">FE-ng</a></footer>
   </div>
@@ -213,6 +231,31 @@
       };
       if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 3000 });
       else setTimeout(run, 1500);
+    })();
+  </script>
+  <script>
+    // 卡片焦点环:鼠标在卡片间移动时,渐变描边环自己“滑”过去(pointerover 触发,transition 平滑过渡)
+    (function () {
+      if (!matchMedia("(hover:hover)").matches) return;
+      var grid = document.querySelector(".grid");
+      if (!grid) return;
+      var ring = document.createElement("div");
+      ring.className = "focus-ring";
+      grid.appendChild(ring);
+      function move(card) {
+        var gr = grid.getBoundingClientRect();
+        var cr = card.getBoundingClientRect();
+        ring.style.width = cr.width + "px";
+        ring.style.height = cr.height + "px";
+        ring.style.transform = "translate(" + (cr.left - gr.left) + "px," + (cr.top - gr.top) + "px)";
+        ring.style.opacity = "1";
+      }
+      grid.addEventListener("pointerover", function (e) {
+        var c = e.target.closest("a.demo");
+        if (c && grid.contains(c)) move(c);
+      });
+      grid.addEventListener("pointerleave", function () { ring.style.opacity = "0"; });
+      addEventListener("resize", function () { var c = document.querySelector("a.demo:hover"); if (c) move(c); });
     })();
   </script>
 </body>
