@@ -6,19 +6,22 @@
 <title>frontend-lab · 单文件炫技集</title>
 <style>
   @property --hue { syntax: "<angle>"; inherits: true; initial-value: 220deg; }
+  :root { --brand:#7c5cff; }
   * { box-sizing: border-box; margin: 0; }
-  body { min-height: 100vh; background: #05060d; color: #eef2ff; font: 16px/1.6 -apple-system,"Segoe UI","PingFang SC",system-ui,sans-serif; padding: 48px 24px; animation: hue 40s linear infinite; overflow-x: hidden; }
+  body { min-height: 100vh; background: #05060d; color: #eef2ff;
+    font: 16px/1.6 -apple-system,"Segoe UI","PingFang SC",system-ui,sans-serif; padding: 48px 24px 64px; animation: hue 50s linear infinite; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
   @keyframes hue { to { --hue: 580deg; } }
   .bg { position: fixed; inset: 0; z-index: -1; filter: blur(80px) saturate(140%); opacity: .7; }
   .bg i { position: absolute; border-radius: 50%; mix-blend-mode: screen; }
   .bg i:nth-child(1) { width: 55vw; height: 55vw; left: -8%; top: -10%; background: radial-gradient(circle, hsl(var(--hue) 90% 60%), transparent 60%); }
   .bg i:nth-child(2) { width: 50vw; height: 50vw; right: -10%; bottom: -10%; background: radial-gradient(circle, hsl(calc(var(--hue) + 120deg) 85% 58%), transparent 60%); }
-  .wrap { max-width: 880px; margin: 0 auto; }
+  .wrap { max-width: 980px; margin: 0 auto; }
   h1 { font-size: clamp(34px, 7vw, 64px); font-weight: 800; letter-spacing: -.03em; line-height: 1;
-    background: linear-gradient(120deg,#fff,var(--brand,#7c5cff) 60%,#18d6c9); background-clip: text; -webkit-background-clip: text; color: transparent; }
-  :root { --brand:#7c5cff; }
-  .lede { color: #8b93b5; margin: 14px 0 36px; max-width: 56ch; font-size: 16px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap: 18px; }
+    background: linear-gradient(120deg,#fff,var(--brand) 60%,#18d6c9); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { color: #8b93b5; margin: 14px 0 12px; max-width: 60ch; font-size: 16px; }
+  .links { color: #5a637f; font-size: 12.5px; margin-bottom: 36px; }
+  .links a { color: #18d6c9; text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,.2); margin-right: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 18px; }
   a.demo { display: block; padding: 24px; border-radius: 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); text-decoration: none; color: inherit; transition: transform .18s, border-color .18s, background .18s; backdrop-filter: blur(8px); }
   a.demo:hover { transform: translateY(-3px); border-color: rgba(124,92,255,.6); background: rgba(124,92,255,.08); }
   .demo .n { font-size: 12px; color: #18d6c9; letter-spacing: .15em; font-weight: 700; }
@@ -34,22 +37,55 @@
   <div class="bg" aria-hidden="true"><i></i><i></i></div>
   <div class="wrap">
     <h1>frontend-lab</h1>
-    <p class="lede">单文件、零依赖的前端炫技集。每个 demo 都是一个独立 HTML,旨在把 CSS / Canvas / 3D / 现代浏览器 API 的硬功底摆在台面上。</p>
+    <p class="lede">单文件、零(或仅 CDN)依赖的前端炫技集。每个 demo 一个独立 HTML,把 CSS / Canvas / WebGL / 3D / 现代浏览器 API 的硬功底摆上台面。</p>
+    <div class="links">
+      <a href="https://github.com/FE-ng/frontend-lab">GitHub ↗</a>
+    </div>
     <div class="grid">
       <a class="demo" href="01-aurora-parallax/">
         <div class="n">01</div>
         <h2>Aurora · 3D 视差 Hero</h2>
         <p>极光背景 + Canvas 星图 + preserve-3d 分层视差 + Scroll-Driven reveal。</p>
-        <div class="tags"><span>CSS 3D</span><span>@property</span><span>Canvas</span><span>Scroll-Driven</span><span>mix-blend</span></div>
+        <div class="tags"><span>CSS 3D</span><span>@property</span><span>Canvas</span><span>Scroll-Driven</span></div>
       </a>
-      <a class="demo" href="01-aurora-parallax/" style="opacity:.4">
+      <a class="demo" href="02-glsl-aurora/">
         <div class="n">02</div>
-        <h2>即将到来</h2>
-        <p>下一个炫技 demo 正在路上 —— shader 全屏背景 / Three.js 粒子 / 纯 CSS 3D...</p>
-        <div class="tags"><span>待选</span></div>
+        <h2>GLSL Aurora</h2>
+        <p>手写 fragment shader,域翘曲 FBM 噪声流体极光,鼠标扰动光场。</p>
+        <div class="tags"><span>WebGL1</span><span>FBM</span><span>domain warp</span><span>cosine palette</span></div>
+      </a>
+      <a class="demo" href="03-three-particles/">
+        <div class="n">03</div>
+        <h2>Three.js 粒子球 + Bloom</h2>
+        <p>GPU instancing 分布发光球,UnrealBloom 后处理辉光,拖拽旋转。</p>
+        <div class="tags"><span>Three.js</span><span>instancing</span><span>postprocessing</span><span>bloom</span></div>
+      </a>
+      <a class="demo" href="04-flow-field/">
+        <div class="n">04</div>
+        <h2>Flow Field 粒子流场</h2>
+        <p>值噪声驱动 ~700 粒子轨迹,拖尾合成,鼠标牵引流场方向。</p>
+        <div class="tags"><span>Canvas 2D</span><span>value noise</span><span>粒子</span><span>HSL</span></div>
+      </a>
+      <a class="demo" href="05-css-3d-cube/">
+        <div class="n">05</div>
+        <h2>纯 CSS 3D 立体场景</h2>
+        <p>preserve-3d 做到极致:玻璃立方体 + 内核 + 轨道环,零 JS 3D。</p>
+        <div class="tags"><span>CSS 3D</span><span>preserve-3d</span><span>glass</span><span>zero JS</span></div>
+      </a>
+      <a class="demo" href="06-gsap-scroll/">
+        <div class="n">06</div>
+        <h2>GSAP 电影级滚动叙事</h2>
+        <p>ScrollTrigger pin + scrub:hero 渐进、横向 panel、收尾视差。</p>
+        <div class="tags"><span>GSAP</span><span>ScrollTrigger</span><span>pin scrub</span><span>parallax</span></div>
+      </a>
+      <a class="demo" href="07-view-transitions/">
+        <div class="n">07</div>
+        <h2>View Transitions SPA</h2>
+        <p>document.startViewTransition + 共享元素 morph,画廊→详情形变切换。</p>
+        <div class="tags"><span>View Transitions</span><span>shared element</span><span>SPA</span><span>fallback</span></div>
       </a>
     </div>
-    <footer>frontend-lab · <a href="https://github.com/FE-ng/fe-codegen-eval">FE-ng</a></footer>
+    <footer>frontend-lab · 单文件炫技集 · 部署于 GitHub Pages + Vercel · <a href="https://github.com/FE-ng/frontend-lab">FE-ng</a></footer>
   </div>
 </body>
 </html>

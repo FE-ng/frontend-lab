@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>07 · View Transitions · frontend-lab</title>
+<style>
+  @property --hue { syntax: "<angle>"; inherits: true; initial-value: 220deg; }
+  * { box-sizing: border-box; margin: 0; }
+  :root { --brand:#7c5cff; --bg:#05060d; }
+  body { background: var(--bg); color: #eef2ff; min-height: 100vh;
+    font: 15px/1.6 -apple-system,"Segoe UI","Pingfang SC",system-ui,sans-serif; padding: 40px 24px 64px; -webkit-font-smoothing: antialiased; animation: hue 50s linear infinite; overflow-x: hidden; }
+  @keyframes hue { to { --hue: 580deg; } }
+  .bg { position: fixed; inset: 0; z-index: -1; filter: blur(80px) saturate(140%); opacity: .6; }
+  .bg i { position: absolute; border-radius: 50%; mix-blend-mode: screen; }
+  .bg i:nth-child(1){width:50vw;height:50vw;left:-8%;top:-8%;background:radial-gradient(circle,hsl(var(--hue) 90% 60%),transparent 60%);}
+  .bg i:nth-child(2){width:45vw;height:45vw;right:-8%;bottom:-8%;background:radial-gradient(circle,hsl(calc(var(--hue)+130deg) 85% 58%),transparent 60%);}
+
+  .wrap { max-width: 980px; margin: 0 auto; position: relative; z-index: 1; }
+  .head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 28px; }
+  .num { font-size: 13px; color: #18d6c9; letter-spacing: .2em; font-weight: 700; }
+  .head h1 { font-size: clamp(28px,5vw,52px); font-weight: 800; letter-spacing: -.03em;
+    background: linear-gradient(120deg,#fff,var(--brand) 60%,#18d6c9); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .head .sub { color: #8b93b5; font-size: 14px; }
+  .crumb { color: #5a637f; font-size: 12.5px; margin-bottom: 22px; }
+  .crumb button { color: #18d6c9; background: none; border: 0; cursor: pointer; font: inherit; border-bottom: 1px dotted rgba(255,255,255,.2); padding: 0; }
+  .crumb button:hover { color: #fff; }
+
+  /* ---- 列表 ---- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 16px; }
+  .card { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; overflow: hidden; cursor: pointer;
+    transition: transform .18s, border-color .18s; backdrop-filter: blur(8px); }
+  .card:hover { transform: translateY(-3px); border-color: rgba(124,92,255,.6); }
+  .card .thumb { aspect-ratio: 16/10; }
+  .card .meta { padding: 12px 14px; }
+  .card .meta b { font-size: 14.5px; display: block; }
+  .card .meta span { font-size: 12px; color: #8b93b5; }
+
+  /* ---- 详情 ---- */
+  .detail { display: grid; grid-template-columns: 1.3fr 1fr; gap: 28px; align-items: start; }
+  @media (max-width: 720px){ .detail { grid-template-columns: 1fr; } }
+  .detail .hero { aspect-ratio: 4/3; border-radius: 22px; border: 1px solid rgba(255,255,255,.14); overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+  .detail .info { padding-top: 8px; }
+  .detail .info h2 { font-size: clamp(26px,4vw,40px); font-weight: 800; letter-spacing: -.02em; margin-bottom: 8px; }
+  .detail .info .k { color: #18d6c9; font-size: 13px; letter-spacing: .04em; margin-bottom: 6px; }
+  .detail .info p { color: #b9c0e0; font-size: 15px; max-width: 48ch; }
+  .nav { display: flex; gap: 10px; margin-top: 22px; }
+  .nav button { background: rgba(255,255,255,.06); color: #eef2ff; border: 1px solid rgba(255,255,255,.14); padding: 9px 16px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 13px; transition: background .15s, transform .12s; }
+  .nav button:hover { background: rgba(124,92,255,.18); transform: translateY(-1px); }
+  .nav button:active { transform: scale(.97); }
+
+  .note { color: #5a637f; font-size: 12px; margin-top: 38px; border-top: 1px solid rgba(255,255,255,.08); padding-top: 16px; }
+  .note code { color: #b9c0e0; }
+
+  /* ---- View Transitions ---- */
+  ::view-transition-group(root), ::view-transition-group(*) { animation-duration: .42s; animation-timing-function: cubic-bezier(.22,.9,.3,1); }
+  ::view-transition-old(root) { animation: fade-out .18s ease both; }
+  ::view-transition-new(root) { animation: fade-in .42s ease both; }
+  /* 共享元素:thumb ↔ hero,同名自动 morph 位形 */
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    body { animation: none; }
+    ::view-transition-group(*) { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="bg" aria-hidden="true"><i></i><i></i></div>
+  <div class="wrap">
+    <div class="head">
+      <span class="num">07</span>
+      <h1>View Transitions</h1>
+      <span class="sub">SPA 列表→详情 · 共享元素形变 morph · 降级兜底</span>
+    </div>
+    <div id="root"></div>
+    <p class="note">用 <code>document.startViewTransition</code> 切换视图,列表缩略图与详情大图共享同一 <code>view-transition-name</code>,浏览器自动做位形/尺寸形变 morph。不支持时降级为直接切换。点卡片进详情、用按钮前后切换。</p>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+  var ITEMS = [
+    { id: "aurora", k: "CSS 3D", t: "Aurora 视差", d: "极光背景叠加 3D 分层视差,玻璃卡按 translateZ 分布深度,指针驱动全场旋转。", c: ["#7c5cff", "#18d6c9"] },
+    { id: "glsl", k: "WebGL1", t: "GLSL Aurora", d: "fragment shader 手写域翘曲 FBM 噪声,流体极光随鼠标光场扰动。", c: ["#ff5c8a", "#7c5cff"] },
+    { id: "three", k: "Three.js", t: "粒子星云 + Bloom", d: "GPU instancing 分布 2000 发光球于 Fibonacci 球面,UnrealBloom 后处理辉光。", c: ["#18d6c9", "#5b8cff"] },
+    { id: "flow", k: "Canvas 2D", t: "Flow Field", d: "值噪声驱动 ~700 粒子流场,拖尾合成,鼠标牵引流向。", c: ["#ffb05c", "#ff5c8a"] },
+    { id: "cube", k: "纯 CSS 3D", t: "玻璃立方体", d: "preserve-3d 搭建玻璃立方体 + 反转内核 + 三条非共面轨道环,零 JS。", c: ["#5b8cff", "#18d6c9"] },
+    { id: "gsap", k: "GSAP", t: "电影级滚动", d: "ScrollTrigger pin + scrub:hero 渐进、横向 panel、收尾多层视差。", c: ["#7c5cff", "#ff5c8a"] }
+  ];
+  var byId = {}; ITEMS.forEach(function (i) { byId[i.id] = i; });
+  var IDS = ITEMS.map(function (i) { return i.id; });
+
+  var state = { view: "list", id: null };
+  var root = document.getElementById("root");
+
+  function grad(c) { return "linear-gradient(135deg," + c[0] + "," + c[1] + ")"; }
+
+  function renderList() {
+    var h = '<div class="grid">';
+    ITEMS.forEach(function (it) {
+      h += '<div class="card" data-id="' + it.id + '">' +
+        '<div class="thumb" style="background:' + grad(it.c) + ';view-transition-name:vt-' + it.id + '"></div>' +
+        '<div class="meta"><b>' + it.t + '</b><span>' + it.k + '</span></div></div>';
+    });
+    h += '</div>';
+    return h;
+  }
+
+  function renderDetail(id) {
+    var it = byId[id];
+    var idx = IDS.indexOf(id);
+    var prev = IDS[(idx - 1 + IDS.length) % IDS.length];
+    var nextv = IDS[(idx + 1) % IDS.length];
+    return '<div class="crumb"><button data-act="back">← 返回列表</button></div>' +
+      '<div class="detail">' +
+        '<div class="hero" style="background:' + grad(it.c) + ';view-transition-name:vt-' + id + '"></div>' +
+        '<div class="info"><div class="k">' + it.k + '</div><h2>' + it.t + '</h2><p>' + it.d + '</p>' +
+          '<div class="nav"><button data-act="prev" data-id="' + prev + '">← 上一个</button>' +
+          '<button data-act="next" data-id="' + nextv + '">下一个 →</button></div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function render() {
+    root.innerHTML = state.view === "list" ? renderList() : renderDetail(state.id);
+  }
+
+  // 关键:在 startViewTransition 回调里改 DOM,浏览器快照旧→新并 morph 同名元素
+  function go(view, id) {
+    var apply = function () { state.view = view; state.id = id; render(); };
+    if (document.startViewTransition) document.startViewTransition(apply);
+    else apply();
+  }
+
+  root.addEventListener("click", function (e) {
+    var card = e.target.closest(".card");
+    if (card) { go("detail", card.getAttribute("data-id")); return; }
+    var btn = e.target.closest("[data-act]");
+    if (!btn) return;
+    var act = btn.getAttribute("data-act");
+    if (act === "back") go("list", null);
+    else if (act === "prev" || act === "next") go("detail", btn.getAttribute("data-id"));
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

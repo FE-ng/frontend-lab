@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>04 · Flow Field · frontend-lab</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: #05060d; overflow: hidden; color: #eef2ff;
+    font: 15px/1.6 -apple-system, "Segoe UI", "PingFang SC", system-ui, sans-serif; }
+  #cv { position: fixed; inset: 0; display: block; }
+  .ui { position: fixed; inset: 0; z-index: 2; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 32px; }
+  .head { display: flex; align-items: baseline; gap: 14px; }
+  .num { font-size: 13px; color: #18d6c9; letter-spacing: .2em; font-weight: 700; }
+  .head h1 { font-size: clamp(28px, 5vw, 52px); font-weight: 800; letter-spacing: -.03em;
+    background: linear-gradient(120deg, #fff, #7c5cff 60%, #18d6c9); -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 6px 24px rgba(0,0,0,.4)); }
+  .head .sub { color: #8b93b5; font-size: 14px; }
+  .meta { display: flex; gap: 10px; flex-wrap: wrap; }
+  .meta span { font-size: 11.5px; color: #b9c0e0; border: 1px solid rgba(255,255,255,.16); padding: 4px 10px; border-radius: 999px; backdrop-filter: blur(6px); background: rgba(0,0,0,.2); }
+  .hint { color: #5a637f; font-size: 12.5px; text-align: center; }
+  a.top { position: fixed; top: 18px; right: 24px; z-index: 5; color: #8b93b5; font-size: 13px; text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,.2); }
+  a.top:hover { color: #fff; }
+  @media (max-width: 640px) { .ui { padding: 20px; } .meta { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<a class="top" href="https://fe-ng.github.io/frontend-lab/">← lab 首页</a>
+<div class="ui">
+  <div class="head">
+    <span class="num">04</span>
+    <h1>Flow Field</h1>
+    <span class="sub">值噪声驱动的粒子流场 · 拖尾合成</span>
+  </div>
+  <div class="meta">
+    <span>Canvas 2D</span><span>value noise</span><span>~700 粒子</span><span>HSL 着色</span><span>pointer steer</span>
+  </div>
+  <div class="hint">移动鼠标,粒子流会牵向你的位置</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var cv = document.getElementById("cv");
+  var ctx = cv.getContext("2d");
+  var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var DPR = Math.min(devicePixelRatio || 1, 2);
+  var W = 0, H = 0, particles = [];
+
+  // --- 紧凑 2D 值噪声 ---
+  function fract(n) { return n - Math.floor(n); }
+  function hash(x, y) { return fract(Math.sin(x * 127.1 + y * 311.7) * 43758.5453); }
+  function smooth(t) { return t * t * (3 - 2 * t); }
+  function noise(x, y) {
+    var ix = Math.floor(x), iy = Math.floor(y);
+    var fx = x - ix, fy = y - iy;
+    var a = hash(ix, iy), b = hash(ix + 1, iy), c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1);
+    var ux = smooth(fx), uy = smooth(fy);
+    return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy;
+  }
+
+  var SCALE = 0.0028, SPEED = 1.25;
+
+  function spawn(p) {
+    p.x = Math.random() * W; p.y = Math.random() * H;
+    p.life = 60 + Math.random() * 160;
+    p.max = p.life;
+    return p;
+  }
+
+  function resize() {
+    W = innerWidth; H = innerHeight;
+    cv.width = W * DPR; cv.height = H * DPR;
+    cv.style.width = W + "px"; cv.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.fillStyle = "#05060d"; ctx.fillRect(0, 0, W, H);
+    var n = reduce ? 200 : Math.min(700, Math.floor(W * H / 2400));
+    particles = [];
+    for (var i = 0; i < n; i++) particles.push(spawn({}));
+  }
+  resize(); addEventListener("resize", resize);
+
+  var px = -9999, py = -9999;
+  addEventListener("pointermove", function (e) { px = e.clientX; py = e.clientY; }, { passive: true });
+  addEventListener("pointerout", function () { px = py = -9999; });
+
+  var t = 0;
+  function angleAt(x, y) {
+    // 值噪声 → 角度,时间让场缓慢演变
+    var n = noise(x * SCALE + t, y * SCALE - t * 0.6);
+    return n * Math.PI * 4;
+  }
+
+  function frame() {
+    // 拖尾:半透明背景叠加,旧轨迹淡出
+    ctx.fillStyle = "rgba(5, 6, 13, 0.055)";
+    ctx.fillRect(0, 0, W, H);
+    t += reduce ? 0.0008 : 0.0022;
+
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      var a = angleAt(p.x, p.y);
+      // 指针牵引:靠近指针时角度向指针方向偏转
+      if (px > -9000) {
+        var dx = px - p.x, dy = py - p.y;
+        var d = Math.hypot(dx, dy);
+        if (d < 220) {
+          var toward = Math.atan2(dy, dx);
+          var k = (1 - d / 220) * 0.6;
+          // 圆周角插值
+          a = a + (toward - a) * k + (Math.abs(toward - a) > Math.PI ? Math.PI * 2 * Math.sign(toward - a) * 0 : 0);
+        }
+      }
+      p.x += Math.cos(a) * SPEED;
+      p.y += Math.sin(a) * SPEED;
+      p.life--;
+
+      var lifeRatio = p.life / p.max;
+      var hue = (a / (Math.PI * 4)) * 360 + 200;        // 角度映射色相
+      ctx.fillStyle = "hsla(" + ((hue % 360 + 360) % 360) + ", 85%, " + (55 + lifeRatio * 10) + "%, " + (0.5 * lifeRatio) + ")";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 1.4, 0, 6.2832);
+      ctx.fill();
+
+      if (p.life <= 0 || p.x < -10 || p.x > W + 10 || p.y < -10 || p.y > H + 10) spawn(p);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
