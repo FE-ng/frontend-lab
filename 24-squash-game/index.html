@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>24 · Squash 3D</title>
+<style>
+  html,body{margin:0;height:100%;background:#05060d;overflow:hidden;font:14px/1.45 system-ui,sans-serif;color:#cdd3f5;user-select:none}
+  #c{position:fixed;inset:0;display:block}
+  .ov{position:fixed;pointer-events:none;z-index:5}
+  #ttl{top:18px;left:24px;font:700 15px/1 sans-serif;letter-spacing:.05em;color:#8b93b5}
+  #ttl b{color:#18d6c9}
+  #hud{bottom:22px;left:24px;font:13px/1.5 sans-serif;color:#8b93b5}
+  #hud .v{color:#7c5cff;font:700 26px/1 sans-serif;display:inline-block;min-width:36px}
+  #hud .b{color:#ff2e9a}
+  #pow{position:fixed;bottom:26px;right:24px;width:190px;height:8px;background:#151931;border-radius:4px;overflow:hidden;pointer-events:none;z-index:5}
+  #pow i{display:block;height:100%;width:0;background:linear-gradient(90deg,#18d6c9,#7c5cff,#ff2e9a)}
+  #hint{position:fixed;bottom:46px;right:24px;font:12px sans-serif;color:#5a6188;z-index:5;pointer-events:none}
+  #toast{top:58px;left:50%;transform:translateX(-50%);background:rgba(16,20,40,.92);border:1px solid #2a3160;padding:7px 16px;border-radius:8px;opacity:0;transition:opacity .25s;font:600 14px sans-serif;white-space:nowrap;z-index:5}
+  #toast.on{opacity:1}
+  #toast.bad{color:#ff2e9a;border-color:#5a1f3a}
+  #toast.ok{color:#18d6c9;border-color:#1f4a4a}
+  #tut{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(5,6,13,.75);z-index:9;pointer-events:auto}
+  #tut .p{background:linear-gradient(160deg,#11142a,#080b1c);border:1px solid #2a3160;border-radius:14px;padding:26px 30px;max-width:430px;color:#cdd3f5}
+  #tut h2{margin:0 0 10px;color:#18d6c9;font:700 18px sans-serif}
+  #tut ul{margin:6px 0 16px;padding-left:18px}
+  #tut li{margin:5px 0;line-height:1.5}
+  #tut li b{color:#7c5cff}
+  #tut button{background:#7c5cff;color:#fff;border:0;border-radius:8px;padding:8px 20px;font:600 13px sans-serif;cursor:pointer}
+  #tut button:hover{background:#18d6c9;color:#05060d}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="ov" id="ttl">24 · <b>Squash 3D</b></div>
+<a href="../" style="position:fixed;top:18px;right:24px;color:#8b93b5;text-decoration:none;font:13px sans-serif;z-index:5">← lab 首页</a>
+<div class="ov" id="hud">streak <span class="v" id="streak">0</span> &nbsp; best <span class="v b" id="best">0</span></div>
+<div id="pow"><i id="powBar"></i></div>
+<div id="hint">鼠标瞄准 · 按住蓄力 · 松开击球 · R 重新发球</div>
+<div class="ov" id="toast"></div>
+<div id="tut"><div class="p">
+  <h2>Squash 3D · 新手教学</h2>
+  <ul>
+    <li>把球打到前墙 <b>tin</b> 红条以上、<b>out line</b> 紫线以下才算合法。</li>
+    <li>球落地只能 <b>弹一次</b>，第二次落地即失分回合结束。</li>
+    <li>球回到你身侧 <b>击球区</b>（后场）时按住鼠标蓄力，松开击球。</li>
+    <li>连续合法击球 = <b>streak</b>，违规会清零并记录最佳分。</li>
+    <li>按 <b>R</b> 随时重新发球。</li>
+  </ul>
+  <button id="tutClose">开始游戏</button>
+</div></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const W = () => window.innerWidth;
+const H = () => window.innerHeight;
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(W(), H());
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05060d);
+scene.fog = new THREE.Fog(0x05060d, 13, 32);
+
+const camera = new THREE.PerspectiveCamera(55, W() / H(), 0.1, 100);
+camera.position.set(0, 4.3, -11.4);
+camera.lookAt(0, 2, 0);
+
+// 球场尺寸（米）
+const FW_W = 6.4, OUT_Y = 4.57, TIN_Y = 0.48, LEN = 9.75;
+const HALF = FW_W / 2;
+
+// 灯光
+scene.add(new THREE.AmbientLight(0x4a5080, 0.55));
+const key = new THREE.DirectionalLight(0xffffff, 0.7);
+key.position.set(-3, 9, -5);
+scene.add(key);
+const p1 = new THREE.PointLight(0x7c5cff, 1.3, 26);
+p1.position.set(0, 6, -1);
+scene.add(p1);
+const p2 = new THREE.PointLight(0x18d6c9, 0.9, 22);
+p2.position.set(4.5, 3, -7);
+scene.add(p2);
+const p3 = new THREE.PointLight(0xff2e9a, 0.7, 18);
+p3.position.set(-4, 2, -8);
+scene.add(p3);
+
+// 球场
+function court() {
+  const g = new THREE.Group();
+  const plane = (w, h, color, op) => new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, side: THREE.DoubleSide })
+  );
+  // 前墙
+  const fw = plane(FW_W, OUT_Y, 0x7c5cff, 0.09);
+  fw.position.set(0, OUT_Y / 2, 0);
+  g.add(fw);
+  // tin 红条
+  const tin = new THREE.Mesh(
+    new THREE.PlaneGeometry(FW_W, TIN_Y),
+    new THREE.MeshBasicMaterial({ color: 0x4a1322, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+  );
+  tin.position.set(0, TIN_Y / 2, 0);
+  g.add(tin);
+  // 侧墙
+  const sw1 = plane(LEN, OUT_Y, 0x18d6c9, 0.045);
+  sw1.position.set(HALF, OUT_Y / 2, -LEN / 2);
+  sw1.rotation.y = -Math.PI / 2;
+  g.add(sw1);
+  const sw2 = sw1.clone();
+  sw2.position.x = -HALF;
+  sw2.rotation.y = Math.PI / 2;
+  g.add(sw2);
+  // 后墙
+  const bw = plane(FW_W, OUT_Y, 0xff2e9a, 0.05);
+  bw.position.set(0, OUT_Y / 2, -LEN);
+  g.add(bw);
+  // 地板
+  const fl = new THREE.Mesh(
+    new THREE.PlaneGeometry(FW_W, LEN),
+    new THREE.MeshStandardMaterial({ color: 0x080b1c, roughness: 0.75, metalness: 0.15 })
+  );
+  fl.rotation.x = -Math.PI / 2;
+  fl.position.set(0, 0, -LEN / 2);
+  g.add(fl);
+
+  // 标线
+  const ln = (pts, c) => new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts.map(p => new THREE.Vector3(...p))),
+    new THREE.LineBasicMaterial({ color: c })
+  );
+  g.add(ln([[-HALF, OUT_Y, 0.01], [HALF, OUT_Y, 0.01]], 0x7c5cff));   // out line
+  g.add(ln([[-HALF, TIN_Y, 0.01], [HALF, TIN_Y, 0.01]], 0xff2e9a));   // tin line
+  g.add(ln([[-HALF, 0.02, -LEN], [HALF, 0.02, -LEN]], 0x18d6c9));     // 后墙底线
+  g.add(ln([[-HALF, 0.02, -LEN * 0.32], [HALF, 0.02, -LEN * 0.32]], 0x18d6c9)); // short line
+  // 击球区地板提示（后场半透明框）
+  const sz = plane(FW_W, LEN * 0.42, 0x18d6c9, 0.04);
+  sz.rotation.x = -Math.PI / 2;
+  sz.position.set(0, 0.015, -LEN + LEN * 0.21);
+  g.add(sz);
+  return g;
+}
+scene.add(court());
+
+// 球
+const BR = 0.08;
+const ball = new THREE.Mesh(
+  new THREE.SphereGeometry(BR, 24, 16),
+  new THREE.MeshStandardMaterial({ color: 0xff2e9a, emissive: 0xff2e9a, emissiveIntensity: 0.5, roughness: 0.3 })
+);
+const halo = new THREE.Mesh(
+  new THREE.SphereGeometry(BR * 1.9, 16, 12),
+  new THREE.MeshBasicMaterial({ color: 0xff2e9a, transparent: true, opacity: 0.16 })
+);
+ball.add(halo);
+scene.add(ball);
+
+// 拖尾
+const trail = [];
+for (let i = 0; i < 14; i++) {
+  const t = new THREE.Mesh(
+    new THREE.SphereGeometry(BR * 0.55, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff2e9a, transparent: true, opacity: 0 })
+  );
+  scene.add(t);
+  trail.push(t);
+}
+
+// 瞄准环
+const aim = new THREE.Mesh(
+  new THREE.RingGeometry(0.16, 0.23, 28),
+  new THREE.MeshBasicMaterial({ color: 0x18d6c9, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
+);
+aim.position.set(0, 2, 0.04);
+scene.add(aim);
+
+// 物理状态
+const G = 18, DRAG = 0.3, RW = 0.7, RF = 0.45, MAXV = 34;
+const state = {
+  pos: new THREE.Vector3(0, 2, -7),
+  vel: new THREE.Vector3(),
+  bounces: 0,
+  streak: 0,
+  best: 0,
+  flying: false,
+  ended: false,
+  power: 0,
+  charging: false,
+  sway: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+};
+
+const toastEl = document.getElementById('toast');
+let toastTimer = null;
+function toast(msg, kind) {
+  toastEl.textContent = msg;
+  toastEl.className = 'ov on' + (kind ? ' ' + kind : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastEl.className = 'ov'; }, 1700);
+}
+
+function resetServe() {
+  state.pos.set(0, 2, -7);
+  state.vel.set(0, 0, 0);
+  state.bounces = 0;
+  state.flying = false;
+  state.ended = false;
+  state.power = 0;
+  state.charging = false;
+  toast('发球：瞄准前墙 · 蓄力松开');
+}
+function endRound(reason) {
+  if (state.streak > state.best) state.best = state.streak;
+  state.streak = 0;
+  state.ended = true;
+  state.flying = false;
+  toast(reason, 'bad');
+  setTimeout(resetServe, 1200);
+}
+
+// 鼠标瞄准（射线投射到前墙 z=0 平面）
+const ray = new THREE.Raycaster();
+const mouse = new THREE.Vector2(0, 0);
+const aimPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const aimTarget = new THREE.Vector3();
+const aimPt = new THREE.Vector3(0, 2, 0);
+function updateAim() {
+  ray.setFromCamera(mouse, camera);
+  const hit = ray.ray.intersectPlane(aimPlane, aimTarget);
+  if (!hit) return;
+  aimPt.copy(aimTarget);
+  aimPt.y = Math.min(4.45, Math.max(0.6, aimPt.y));
+  aimPt.x = Math.min(3, Math.max(-3, aimPt.x));
+  aim.position.set(aimPt.x, aimPt.y, 0.04);
+}
+
+function canHit() {
+  const z = state.pos.z, x = state.pos.x, y = state.pos.y;
+  return z < -4 && z > -LEN && Math.abs(x) < HALF + 0.2 && y < 5 && y > 0 && state.bounces <= 1;
+}
+function tryHit(power) {
+  if (!canHit()) { toast('球未在击球区', 'bad'); return; }
+  if (power < 0.06) { toast('蓄力太弱', 'bad'); return; }
+  const dir = new THREE.Vector3().subVectors(aimPt, state.pos);
+  if (dir.z < 0.5) { toast('需瞄准前墙', 'bad'); return; }
+  dir.normalize();
+  const speed = 9 + power * MAXV;
+  state.vel.copy(dir.multiplyScalar(speed));
+  state.bounces = 0;
+  state.flying = true;
+  state.streak++;
+  toast('+1 好球', 'ok');
+}
+
+// 事件
+window.addEventListener('mousemove', (e) => {
+  mouse.x = (e.clientX / W()) * 2 - 1;
+  mouse.y = -(e.clientY / H()) * 2 + 1;
+});
+window.addEventListener('mousedown', (e) => {
+  if (state.ended) return;
+  if (e.button !== 0) return;
+  state.charging = true;
+});
+window.addEventListener('mouseup', (e) => {
+  if (!state.charging) return;
+  state.charging = false;
+  tryHit(state.power);
+  state.power = 0;
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'r' || e.key === 'R') resetServe();
+});
+document.getElementById('tutClose').addEventListener('click', () => {
+  document.getElementById('tut').style.display = 'none';
+});
+
+// 物理子步
+function physics(dt) {
+  if (!state.flying) return;
+  const steps = 3;
+  const sdt = dt / steps;
+  for (let i = 0; i < steps; i++) {
+    state.vel.y -= G * sdt;
+    state.vel.multiplyScalar(1 - DRAG * sdt);
+    state.pos.addScaledVector(state.vel, sdt);
+
+    // 地板
+    if (state.pos.y < BR) {
+      state.pos.y = BR;
+      if (state.vel.y < 0) state.vel.y = -state.vel.y * RF;
+      state.vel.x *= 0.84;
+      state.vel.z *= 0.84;
+      state.bounces++;
+      if (state.bounces >= 2) { endRound('失分：球弹两次'); return; }
+    }
+    // 前墙（前墙在 z=0,球场在 -z）
+    if (state.pos.z >= -BR && state.vel.z > 0) {
+      state.pos.z = -BR;
+      if (state.pos.y < TIN_Y) { endRound('出界：打到 tin'); return; }
+      if (state.pos.y > OUT_Y) { endRound('出界：高于 out line'); return; }
+      state.vel.z = -state.vel.z * RW;
+      state.vel.x *= 0.9;
+      state.vel.y *= 0.9;
+    }
+    // 后墙
+    if (state.pos.z <= -LEN + BR && state.vel.z < 0) {
+      state.pos.z = -LEN + BR;
+      state.vel.z = -state.vel.z * 0.55;
+      state.vel.x *= 0.85;
+    }
+    // 侧墙
+    if (state.pos.x > HALF - BR && state.vel.x > 0) {
+      state.pos.x = HALF - BR;
+      state.vel.x = -state.vel.x * RW;
+    }
+    if (state.pos.x < -HALF + BR && state.vel.x < 0) {
+      state.pos.x = -HALF + BR;
+      state.vel.x = -state.vel.x * RW;
+    }
+    // 飞出前墙顶部边界外的兜底（球速过快穿透）
+    if (state.pos.z > 0.5 || state.pos.y > OUT_Y + 1.5) {
+      endRound('出界：球飞出场外'); return;
+    }
+  }
+}
+
+// 拖尾
+let trailIdx = 0, trailT = 0;
+function updateTrail(dt) {
+  trailT += dt;
+  if (trailT > 0.035) {
+    trailT = 0;
+    trail[trailIdx].position.copy(state.pos);
+    trail[trailIdx].material.opacity = 0.45;
+    trailIdx = (trailIdx + 1) % trail.length;
+  }
+  for (const t of trail) t.material.opacity *= 0.93;
+}
+
+// 主循环
+let last = performance.now();
+function tick(now) {
+  requestAnimationFrame(tick);
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.05) dt = 0.05;
+
+  if (state.charging) state.power = Math.min(1, state.power + dt * 1.05);
+  physics(dt);
+  ball.position.copy(state.pos);
+  if (!state.ended) updateAim();
+  if (state.flying) updateTrail(dt);
+
+  document.getElementById('powBar').style.width = (state.power * 100) + '%';
+  document.getElementById('streak').textContent = state.streak;
+  document.getElementById('best').textContent = state.best;
+
+  if (state.sway) {
+    camera.position.x = Math.sin(now * 0.0003) * 0.18;
+    camera.position.y = 4.3 + Math.sin(now * 0.0004) * 0.08;
+    camera.lookAt(0, 2, 0);
+  }
+
+  renderer.render(scene, camera);
+}
+
+function resize() {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(W(), H());
+  camera.aspect = W() / H();
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+resetServe();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

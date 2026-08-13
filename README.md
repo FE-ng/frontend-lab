@@ -35,7 +35,7 @@
 | 21 | Water / Caustics Shader | WebGL · 法线 fBm · 菲涅尔 · 焦散 · 涟漪 | [open](https://frontend-lab-ten.vercel.app/21-water-shader/) |
 | 22 | Reaction-Diffusion | Gray-Scott · 9 点拉普拉斯 · 预设 · 涂抹播种 | [open](https://frontend-lab-ten.vercel.app/22-reaction-diffusion/) |
 | 23 | Solar Orrery 太阳系 | 8 行星真实周期比 · 土星环遮挡 · 缩放调速 | [open](https://frontend-lab-ten.vercel.app/23-solar-orrery/) |
-| 24 | Squash 3D 小游戏 | three.js + 自定义物理 · 壁球规则教学 | _构建中_ |
+| 24 | Squash 3D 壁球 | three.js + 自定义物理 · 单人 rally · tin/outline 规则教学 | [open](https://frontend-lab-ten.vercel.app/24-squash-game/) |
 
 ---
 
