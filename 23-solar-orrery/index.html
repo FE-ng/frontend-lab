@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>23 · Solar Orrery</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      overflow:hidden;background:#02020a;
+      font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;color:#fff;
+    }
+    canvas{display:block;position:fixed;inset:0;cursor:crosshair}
+
+    .overlay{position:fixed;top:32px;left:36px;z-index:10;pointer-events:none}
+    .overlay h1{
+      font-size:28px;font-weight:700;letter-spacing:-.02em;
+      background:linear-gradient(90deg,#ffd86b,#ff9a3c,#ff5c8a);
+      -webkit-background-clip:text;background-clip:text;
+      -webkit-text-fill-color:transparent;color:transparent;
+    }
+    .overlay p{margin-top:6px;font-size:12px;color:rgba(255,255,255,.45);letter-spacing:.04em}
+
+    .home-link{
+      position:fixed;top:36px;right:36px;z-index:10;
+      color:rgba(255,255,255,.6);text-decoration:none;font-size:14px;
+      transition:color .2s;
+    }
+    .home-link:hover{color:#fff}
+
+    .ctrl{
+      position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:10;
+      display:flex;align-items:center;gap:14px;
+      padding:10px 18px;border-radius:999px;
+      background:rgba(12,12,28,.55);backdrop-filter:blur(10px);
+      border:1px solid rgba(255,255,255,.08);
+      font-size:12px;color:rgba(255,255,255,.7);
+    }
+    .ctrl label{letter-spacing:.06em;text-transform:uppercase}
+    .ctrl input[type=range]{
+      -webkit-appearance:none;appearance:none;width:220px;height:4px;
+      background:linear-gradient(90deg,#ffd86b,#ff5c8a);border-radius:2px;outline:none;
+    }
+    .ctrl input[type=range]::-webkit-slider-thumb{
+      -webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+      background:#fff;box-shadow:0 0 8px rgba(255,200,120,.8);cursor:pointer;
+    }
+    .ctrl input[type=range]::-moz-range-thumb{
+      width:14px;height:14px;border:none;border-radius:50%;
+      background:#fff;box-shadow:0 0 8px rgba(255,200,120,.8);cursor:pointer;
+    }
+    .ctrl .val{min-width:46px;text-align:right;color:#ffd86b;font-variant-numeric:tabular-nums}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <div class="overlay">
+    <h1>23 · Solar Orrery</h1>
+    <p>Sun &amp; 8 planets · real relative orbital periods</p>
+  </div>
+  <a class="home-link" href="../">&#8592; lab 首页</a>
+
+  <div class="ctrl">
+    <label>speed</label>
+    <input id="speed" type="range" min="0" max="1000" value="200">
+    <span class="val" id="speedVal">2.0×</span>
+  </div>
+
+  <script>
+  (function(){
+    "use strict";
+
+    /* ---------- config ---------- */
+    var REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var TILT     = 0.5;          // orbit plane foreshortening (3D feel)
+    var EARTH_PERIOD = 12;       // seconds per Earth orbit at speed 1x
+    var SPIN_BASE    = 0.45;     // base self-rotation visual rate
+    var MIN_ZOOM = 0.35, MAX_ZOOM = 3;
+
+    /* each planet: visual orbit radius & size (NOT real scale),
+       real orbital period (Earth years) drives angular speed,
+       real sidereal rotation period (Earth days) drives self-spin */
+    var PLANETS = [
+      { name:'Mercury', orbit:70,  size:3.8, period:0.2408, rot:58.6,  color:'#9a8b7a', light:'#d8c6a4', kind:'rocky' },
+      { name:'Venus',   orbit:100, size:6.4, period:0.6152, rot:-243,  color:'#e0b878', light:'#f7e2a8', kind:'rocky', atmo:'#fff4c8' },
+      { name:'Earth',   orbit:136, size:7.0, period:1.0,    rot:1.0,   color:'#2a6cc9', light:'#7fb2ec', kind:'earth', atmo:'#aedcff' },
+      { name:'Mars',    orbit:176, size:5.2, period:1.8809, rot:1.03,  color:'#c1502a', light:'#e88860', kind:'mars' },
+      { name:'Jupiter', orbit:250, size:14,  period:11.862, rot:0.41,  color:'#c9a07a', light:'#ecc8a0', kind:'gas', spot:{col:'#b0382a', lat:-0.22, rad:0.26} },
+      { name:'Saturn',  orbit:322, size:12,  period:29.4571,rot:0.45,  color:'#e0c896', light:'#f2e2b4', kind:'gas', rings:'normal' },
+      { name:'Uranus',  orbit:386, size:9,   period:84.0205,rot:-0.72, color:'#9ad8d8', light:'#cdeceb', kind:'gas', rings:'tilt' },
+      { name:'Neptune', orbit:446, size:8.5, period:164.81, rot:0.67,  color:'#3457a0', light:'#7095d4', kind:'gas', spot:{col:'#15234a', lat:0.12, rad:0.22} }
+    ];
+
+    // initial phase offsets so planets don't start lined up
+    var phase = [0.4, 1.9, 3.1, 4.6, 0.9, 2.4, 5.2, 3.8];
+
+    /* ---------- canvas setup ---------- */
+    var canvas = document.getElementById('c');
+    var ctx = canvas.getContext('2d');
+    var W = 0, H = 0, CX = 0, CY = 0;
+    var bgGrad = null;
+
+    function resize(){
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = window.innerWidth; H = window.innerHeight;
+      CX = W * 0.5; CY = H * 0.5;
+      canvas.width  = Math.floor(W * dpr);
+      canvas.height = Math.floor(H * dpr);
+      canvas.style.width  = W + 'px';
+      canvas.style.height = H + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      bgGrad = ctx.createRadialGradient(CX, CY, 0, CX, CY, Math.max(W, H) * 0.75);
+      bgGrad.addColorStop(0,   '#0c0a22');
+      bgGrad.addColorStop(0.45,'#06051a');
+      bgGrad.addColorStop(1,   '#010109');
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    /* ---------- starfield ---------- */
+    var STARS = [];
+    (function initStars(){
+      var n = 360, i;
+      for (i = 0; i < n; i++){
+        STARS.push({
+          x: Math.random(), y: Math.random(),
+          r: Math.random() * 1.2 + 0.25,
+          a: Math.random() * 0.65 + 0.2,
+          tw: Math.random() * Math.PI * 2,
+          tspd: Math.random() * 1.5 + 0.4
+        });
+      }
+      // a handful of bright sparkle stars
+      for (i = 0; i < 8; i++){
+        STARS.push({
+          x: Math.random(), y: Math.random(),
+          r: Math.random() * 1.4 + 1.4,
+          a: 0.9, tw: Math.random() * 6.28, tspd: Math.random() * 2 + 1,
+          big: true
+        });
+      }
+    })();
+
+    /* ---------- state ---------- */
+    var zoom = 1;
+    var speed = 2.0;           // multiplier, from slider
+    var time = 0;
+    var hover = null;
+    var mouseX = -9999, mouseY = -9999;
+
+    /* ---------- controls ---------- */
+    var speedEl = document.getElementById('speed');
+    var speedVal = document.getElementById('speedVal');
+    function speedFromSlider(v){
+      // 0..1000  -> 0.1x .. 12x  (linear)
+      return 0.1 + (v / 1000) * 11.9;
+    }
+    function applySpeed(){
+      var v = parseInt(speedEl.value, 10);
+      speed = speedFromSlider(v);
+      speedVal.textContent = speed.toFixed(1) + '×';
+    }
+    speedEl.addEventListener('input', applySpeed);
+    applySpeed();
+    if (REDUCED){ speedEl.value = 5; applySpeed(); } // extremely slow baseline
+
+    window.addEventListener('wheel', function(e){
+      e.preventDefault();
+      var k = Math.exp(-e.deltaY * 0.0012);
+      zoom *= k;
+      if (zoom < MIN_ZOOM) zoom = MIN_ZOOM;
+      if (zoom > MAX_ZOOM) zoom = MAX_ZOOM;
+    }, { passive:false });
+
+    canvas.addEventListener('mousemove', function(e){
+      mouseX = e.clientX; mouseY = e.clientY;
+    });
+    canvas.addEventListener('mouseleave', function(){
+      mouseX = -9999; mouseY = -9999;
+    });
+
+    /* ---------- helpers ---------- */
+    function planetAngle(p, i){ return phase[i] + (2 * Math.PI / (EARTH_PERIOD * p.period)) * time * speed; }
+    function orbitRadius(p){ return p.orbit * zoom; }
+    function sizeScale(){ return Math.pow(zoom, 0.55); }
+    function planetRadius(p){ return Math.max(1.6, p.size * sizeScale()); }
+    function sunRadius(){ return Math.max(8, 22 * Math.pow(zoom, 0.5)); }
+
+    function planetPos(p, i){
+      var a = planetAngle(p, i);
+      var r = orbitRadius(p);
+      return { x: CX + r * Math.cos(a), y: CY + r * Math.sin(a) * TILT, a:a };
+    }
+
+    /* ---------- drawing ---------- */
+    function drawBackground(){
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    function drawStars(t){
+      var i, s, x, y, a;
+      for (i = 0; i < STARS.length; i++){
+        s = STARS[i];
+        x = s.x * W; y = s.y * H;
+        a = s.a;
+        if (!REDUCED) a = s.a * (0.55 + 0.45 * Math.sin(t * s.tspd + s.tw));
+        ctx.globalAlpha = a;
+        if (s.big){
+          ctx.fillStyle = '#cfe2ff';
+          ctx.beginPath(); ctx.arc(x, y, s.r, 0, 6.2832); ctx.fill();
+          // 4-point sparkle
+          ctx.globalAlpha = a * 0.5;
+          ctx.strokeStyle = '#cfe2ff';
+          ctx.lineWidth = 0.6;
+          ctx.beginPath();
+          ctx.moveTo(x - s.r * 3, y); ctx.lineTo(x + s.r * 3, y);
+          ctx.moveTo(x, y - s.r * 3); ctx.lineTo(x, y + s.r * 3);
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(x - s.r * 0.5, y - s.r * 0.5, s.r, s.r);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOrbits(){
+      var i, p, r, hovered;
+      ctx.lineWidth = 1;
+      for (i = 0; i < PLANETS.length; i++){
+        p = PLANETS[i];
+        r = orbitRadius(p);
+        hovered = hover && hover.idx === i;
+        ctx.strokeStyle = hovered ? 'rgba(255,210,140,0.55)' : 'rgba(150,160,210,0.16)';
+        ctx.beginPath();
+        ctx.ellipse(CX, CY, r, r * TILT, 0, 0, 6.2832);
+        ctx.stroke();
+      }
+    }
+
+    function drawSun(t){
+      var R = sunRadius();
+      var pulse = REDUCED ? 1 : 1 + 0.04 * Math.sin(t * 1.2);
+      var Rg = R * pulse;
+      // outer glow
+      var g1 = ctx.createRadialGradient(CX, CY, Rg * 0.2, CX, CY, Rg * 6);
+      g1.addColorStop(0,   'rgba(255,210,120,0.35)');
+      g1.addColorStop(0.3, 'rgba(255,140,40,0.12)');
+      g1.addColorStop(1,   'rgba(255,90,0,0)');
+      ctx.fillStyle = g1;
+      ctx.beginPath(); ctx.arc(CX, CY, Rg * 6, 0, 6.2832); ctx.fill();
+
+      // corona
+      var g2 = ctx.createRadialGradient(CX, CY, Rg * 0.6, CX, CY, Rg * 1.9);
+      g2.addColorStop(0, 'rgba(255,220,150,0.6)');
+      g2.addColorStop(1, 'rgba(255,120,30,0)');
+      ctx.fillStyle = g2;
+      ctx.beginPath(); ctx.arc(CX, CY, Rg * 1.9, 0, 6.2832); ctx.fill();
+
+      // body
+      var g3 = ctx.createRadialGradient(CX - Rg * 0.2, CY - Rg * 0.2, Rg * 0.1, CX, CY, Rg);
+      g3.addColorStop(0,   '#fffbe8');
+      g3.addColorStop(0.4, '#ffd86b');
+      g3.addColorStop(0.8, '#ff9a3c');
+      g3.addColorStop(1,   '#e85a14');
+      ctx.fillStyle = g3;
+      ctx.beginPath(); ctx.arc(CX, CY, Rg, 0, 6.2832); ctx.fill();
+    }
+
+    // lit-sphere base + terminator shading; light comes from the sun (center)
+    function sphereBase(x, y, r, p){
+      var dx = CX - x, dy = CY - y;
+      var d = Math.hypot(dx, dy) || 1;
+      var lx = x + (dx / d) * r * 0.35;
+      var ly = y + (dy / d) * r * 0.35;
+      var g = ctx.createRadialGradient(lx, ly, r * 0.1, x, y, r);
+      g.addColorStop(0,    p.light);
+      g.addColorStop(0.55, p.color);
+      g.addColorStop(1,    shade(p.color, 0.35));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
+    }
+    function shade(hex, k){
+      // darken hex color by factor k (0..1)
+      var n = parseInt(hex.slice(1), 16);
+      var r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+      r = Math.floor(r * (1 - k)); g = Math.floor(g * (1 - k)); b = Math.floor(b * (1 - k));
+      return 'rgb(' + r + ',' + g + ',' + b + ')';
+    }
+    function clipCircle(x, y, r){
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.closePath();
+      ctx.clip();
+    }
+
+    // surface features, drawn inside clip (origin at planet center)
+    function drawFeatures(p, r, spin){
+      ctx.save();
+      ctx.rotate(spin);
+      if (p.kind === 'rocky'){
+        // craters / dark patches
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        var pts = [[0.25, -0.30, 0.22], [-0.40, 0.10, 0.18], [0.10, 0.45, 0.14], [-0.15, -0.55, 0.10]];
+        var j;
+        for (j = 0; j < pts.length; j++){
+          var pt = pts[j];
+          ctx.beginPath();
+          ctx.ellipse(pt[0] * r, pt[1] * r, pt[2] * r, pt[2] * r * 0.8, 0, 0, 6.2832);
+          ctx.fill();
+        }
+      } else if (p.kind === 'earth'){
+        // continents
+        ctx.fillStyle = '#3a7d3a';
+        blob(0.10*r, -0.20*r, 0.45*r); blob(-0.35*r, 0.25*r, 0.40*r); blob(0.40*r, 0.35*r, 0.30*r);
+        ctx.fillStyle = '#7a5a2a';
+        blob(-0.10*r, 0.10*r, 0.22*r);
+        // clouds
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        blob(0.30*r, 0.0, 0.30*r); blob(-0.30*r, -0.35*r, 0.22*r);
+      } else if (p.kind === 'mars'){
+        ctx.fillStyle = 'rgba(80,30,10,0.4)';
+        blob(0.15*r, -0.10*r, 0.40*r); blob(-0.35*r, 0.20*r, 0.32*r);
+      } else if (p.kind === 'gas'){
+        // big storm spot that rotates with spin
+        if (p.spot){
+          var sx = Math.cos(p.spot.lat) * r * 0.55;   // longitude ~0 after rotate
+          var sy = Math.sin(p.spot.lat) * r * 0.8;
+          var sr = p.spot.rad * r;
+          var sg = ctx.createRadialGradient(sx, sy, sr * 0.2, sx, sy, sr);
+          sg.addColorStop(0, p.spot.col);
+          sg.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = sg;
+          ctx.beginPath(); ctx.ellipse(sx, sy, sr, sr * 0.65, 0, 0, 6.2832); ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+    function blob(x, y, r){
+      ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.7, 0, 0, 6.2832); ctx.fill();
+    }
+
+    // gas-giant horizontal bands (latitude lines, do NOT rotate)
+    function drawBands(p, x, y, r){
+      var bandCols;
+      if (p.name === 'Jupiter') bandCols = ['rgba(170,120,80,0.55)','rgba(230,200,160,0.45)','rgba(120,80,50,0.5)','rgba(220,180,140,0.4)','rgba(150,100,70,0.5)'];
+      else if (p.name === 'Saturn') bandCols = ['rgba(210,180,130,0.4)','rgba(240,220,180,0.35)','rgba(190,160,110,0.4)'];
+      else if (p.name === 'Uranus') bandCols = ['rgba(150,220,220,0.35)','rgba(200,240,240,0.3)'];
+      else bandCols = ['rgba(40,70,130,0.5)','rgba(90,130,200,0.4)','rgba(30,50,100,0.45)'];
+      var i, by, bh;
+      for (i = 0; i < bandCols.length; i++){
+        by = (-0.6 + i * (1.2 / bandCols.length)) * r;
+        bh = (1.2 / bandCols.length) * r;
+        ctx.fillStyle = bandCols[i];
+        ctx.beginPath();
+        ctx.ellipse(x, y + by, r, bh * 0.5, 0, 0, 6.2832);
+        ctx.fill();
+      }
+    }
+
+    // polar caps for earth/mars (static w.r.t. spin axis)
+    function drawCaps(p, x, y, r){
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath(); ctx.ellipse(x, y - r * 0.85, r * 0.5, r * 0.18, 0, 0, 6.2832); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x, y + r * 0.85, r * 0.5, r * 0.18, 0, 0, 6.2832); ctx.fill();
+    }
+
+    function terminator(x, y, r){
+      // directional darkening on the side facing away from the sun
+      var dx = CX - x, dy = CY - y;
+      var d = Math.hypot(dx, dy) || 1;
+      var ux = -dx / d, uy = -dy / d; // away-from-sun unit
+      var g = ctx.createRadialGradient(
+        x + ux * r * 0.2, y + uy * r * 0.2, r * 0.1,
+        x + ux * r * 0.9, y + uy * r * 0.9, r * 1.05
+      );
+      g.addColorStop(0,   'rgba(0,0,0,0)');
+      g.addColorStop(0.6, 'rgba(0,0,0,0.18)');
+      g.addColorStop(1,   'rgba(0,0,12,0.6)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
+    }
+
+    function atmoRim(p, x, y, r){
+      if (!p.atmo) return;
+      ctx.strokeStyle = p.atmo;
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = Math.max(1, r * 0.16);
+      ctx.beginPath(); ctx.arc(x, y, r + ctx.lineWidth * 0.4, 0, 6.2832); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    function drawSaturnRings(p, x, y, r, half){
+      // half: 'back' draws full ring (behind planet), 'front' draws lower arc on top
+      var rx = r * 2.25, ry = rx * TILT;
+      var grad = ctx.createLinearGradient(x - rx, 0, x + rx, 0);
+      grad.addColorStop(0,    'rgba(230,210,160,0)');
+      grad.addColorStop(0.2,  'rgba(230,210,160,0.55)');
+      grad.addColorStop(0.5,  'rgba(255,235,190,0.75)');
+      grad.addColorStop(0.8,  'rgba(230,210,160,0.55)');
+      grad.addColorStop(1,    'rgba(230,210,160,0)');
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = Math.max(1.5, r * 0.42);
+      ctx.beginPath();
+      if (half === 'back'){
+        ctx.ellipse(x, y, rx, ry, 0, 0, 6.2832);
+      } else {
+        // front half = bottom arc (pi..2pi)
+        ctx.ellipse(x, y, rx, ry, 0, Math.PI, 2 * Math.PI);
+      }
+      ctx.stroke();
+
+      // inner thin gap line
+      ctx.strokeStyle = 'rgba(120,100,70,0.4)';
+      ctx.lineWidth = Math.max(1, r * 0.08);
+      ctx.beginPath();
+      if (half === 'back') ctx.ellipse(x, y, rx * 0.82, ry * 0.82, 0, 0, 6.2832);
+      else ctx.ellipse(x, y, rx * 0.82, ry * 0.82, 0, Math.PI, 2 * Math.PI);
+      ctx.stroke();
+    }
+
+    function drawUranusRings(x, y, r){
+      // Uranus is tilted ~98° — rings appear nearly vertical
+      var ry = r * 1.9, rx = ry * 0.26;
+      ctx.strokeStyle = 'rgba(180,230,230,0.4)';
+      ctx.lineWidth = Math.max(1, r * 0.12);
+      ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, 6.2832); ctx.stroke();
+      ctx.strokeStyle = 'rgba(180,230,230,0.22)';
+      ctx.lineWidth = Math.max(0.8, r * 0.06);
+      ctx.beginPath(); ctx.ellipse(x, y, rx * 1.35, ry * 1.35, 0, 0, 6.2832); ctx.stroke();
+    }
+
+    function drawPlanet(p, i, pos){
+      var r = planetRadius(p);
+      var spin = (2 * Math.PI / (Math.abs(p.rot) * 1.0)) * time * SPIN_BASE * speed * (p.rot < 0 ? -1 : 1);
+      // back rings (Saturn) before body
+      if (p.rings === 'normal') drawSaturnRings(p, pos.x, pos.y, r, 'back');
+      if (p.rings === 'tilt')   drawUranusRings(pos.x, pos.y, r);
+
+      ctx.save();
+      clipCircle(pos.x, pos.y, r);
+      sphereBase(pos.x, pos.y, r, p);
+      if (p.kind === 'gas') drawBands(p, pos.x, pos.y, r);
+      drawFeatures(p, r, spin);
+      if (p.kind === 'earth' || p.kind === 'mars') drawCaps(p, pos.x, pos.y, r);
+      terminator(pos.x, pos.y, r);
+      ctx.restore();
+
+      atmoRim(p, pos.x, pos.y, r);
+
+      // front rings (Saturn) over body
+      if (p.rings === 'normal') drawSaturnRings(p, pos.x, pos.y, r, 'front');
+
+      // hover highlight ring
+      if (hover && hover.idx === i){
+        ctx.strokeStyle = 'rgba(255,220,150,0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(pos.x, pos.y, r + 5, 0, 6.2832); ctx.stroke();
+      }
+    }
+
+    function drawLabel(p, i, pos){
+      var r = planetRadius(p);
+      var txt = p.name + ' · ' + p.period.toFixed(2) + ' yr';
+      ctx.font = '600 12px -apple-system,system-ui,sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      var w = ctx.measureText(txt).width + 14;
+      var lx = pos.x, ly = pos.y - r - 14;
+      ctx.fillStyle = 'rgba(10,10,24,0.85)';
+      ctx.strokeStyle = 'rgba(255,210,140,0.5)';
+      ctx.lineWidth = 1;
+      roundRect(lx - w/2, ly - 18, w, 18, 6);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ffd86b';
+      ctx.fillText(txt, lx, ly - 4);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+    }
+    function roundRect(x, y, w, h, r){
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    /* ---------- main loop ---------- */
+    var last = performance.now();
+    function frame(now){
+      var dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      time += dt;
+
+      // pick hover target (nearest planet within radius+8)
+      hover = null;
+      var best = 12, bestI = -1;
+      var positions = [];
+      for (var i = 0; i < PLANETS.length; i++){
+        var pos = planetPos(PLANETS[i], i);
+        positions.push(pos);
+        var dr = Math.hypot(mouseX - pos.x, mouseY - pos.y);
+        var rr = planetRadius(PLANETS[i]) + 6;
+        if (dr < rr && dr < best){ best = dr; bestI = i; }
+      }
+      if (bestI >= 0) hover = { idx: bestI };
+
+      // render
+      drawBackground();
+      drawStars(time);
+      drawOrbits();
+
+      // depth split around the sun
+      var back = [], front = [];
+      for (i = 0; i < PLANETS.length; i++){
+        if (positions[i].y <= CY) back.push(i); else front.push(i);
+      }
+      // sort each by y ascending so lower-on-screen draws last
+      back.sort(function(a,b){ return positions[a].y - positions[b].y; });
+      front.sort(function(a,b){ return positions[a].y - positions[b].y; });
+
+      for (i = 0; i < back.length; i++) drawPlanet(PLANETS[back[i]], back[i], positions[back[i]]);
+      drawSun(time);
+      for (i = 0; i < front.length; i++) drawPlanet(PLANETS[front[i]], front[i], positions[front[i]]);
+
+      if (hover) drawLabel(PLANETS[hover.idx], hover.idx, positions[hover.idx]);
+
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  })();
+  </script>
+</body>
+</html>
