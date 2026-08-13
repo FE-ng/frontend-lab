@@ -128,6 +128,7 @@ const bloom = new UnrealBloomPass(
   0.0   // threshold
 );
 composer.addPass(bloom);
+composer.setSize(window.innerWidth, window.innerHeight); // 初次按 DPR 校准 bloom RT,避免高 DPR 下辉光半分辨率
 
 /* -------- Pointer drag rotation (Euler 'YXZ' → quaternion) -------- */
 let dragging = false;
@@ -173,7 +174,7 @@ function resize() {
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
   composer.setSize(w, h);
-  bloom.setSize(w, h);
+  // 不再单独 bloom.setSize —— composer.setSize 会以 device pixel 回灌每个 pass;bloom.setSize 用 CSS 像素会把它覆盖成半分辨率
 }
 window.addEventListener('resize', resize);
 

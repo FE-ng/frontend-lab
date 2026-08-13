@@ -26,7 +26,7 @@
 </head>
 <body>
 <canvas id="cv"></canvas>
-<a class="top" href="https://fe-ng.github.io/frontend-lab/">← lab 首页</a>
+<a class="top" href="../">← lab 首页</a>
 <div class="ui">
   <div class="head">
     <span class="num">04</span>
@@ -108,8 +108,9 @@
         if (d < 220) {
           var toward = Math.atan2(dy, dx);
           var k = (1 - d / 220) * 0.6;
-          // 圆周角插值
-          a = a + (toward - a) * k + (Math.abs(toward - a) > Math.PI ? Math.PI * 2 * Math.sign(toward - a) * 0 : 0);
+          // 最短角差插值:把 diff 折到 [-π,π],避免跨 ±π 时粒子走长路抖动
+          var diff = Math.atan2(Math.sin(toward - a), Math.cos(toward - a));
+          a = a + diff * k;
         }
       }
       p.x += Math.cos(a) * SPEED;

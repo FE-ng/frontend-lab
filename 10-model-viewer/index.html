@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>10 · 3D Model Viewer</title>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@3/dist/model-viewer.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #07070d;
+    font-family: -apple-system, "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* dark stage + gradient horizon */
+  model-viewer {
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    background: radial-gradient(
+      ellipse 90% 55% at 50% 88%,
+      #21213e 0%,
+      #14142a 25%,
+      #0c0c18 55%,
+      #07070d 85%
+    );
+    --poster-color: #0c0c18;
+  }
+
+  /* horizon glow strip — a brighter band where "floor" meets void */
+  .horizon {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    height: 18vh;
+    background: linear-gradient(
+      to top,
+      rgba(60, 60, 110, 0.28) 0%,
+      rgba(40, 40, 80, 0.12) 40%,
+      transparent 100%
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* overlay: title + back link */
+  .overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 28px;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .overlay h1 {
+    font-size: 17px;
+    font-weight: 700;
+    color: #e8e8f5;
+    letter-spacing: 0.02em;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.7);
+  }
+
+  .overlay a {
+    pointer-events: auto;
+    color: #a0a0e0;
+    text-decoration: none;
+    font-size: 14px;
+    padding: 7px 16px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+  }
+
+  .overlay a:hover {
+    background: rgba(120,120,220,0.18);
+    border-color: rgba(120,120,220,0.4);
+    color: #d0d0ff;
+  }
+
+  /* loading / error state */
+  #status {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 5;
+    color: #9090d0;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    text-align: center;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.5s ease;
+  }
+
+  #status .spinner {
+    width: 28px; height: 28px;
+    border: 2px solid rgba(144,144,208,0.2);
+    border-top-color: #9090d0;
+    border-radius: 50%;
+    margin: 0 auto 12px;
+    animation: spin 0.9s linear infinite;
+  }
+
+  #status.error .spinner { display: none; }
+  #status.error { color: #e8606e; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #status.hidden { opacity: 0; }
+
+  /* interaction hint */
+  .hint {
+    position: fixed;
+    bottom: 18px; left: 0; right: 0;
+    text-align: center;
+    color: #4a4a60;
+    font-size: 12px;
+    z-index: 4;
+    pointer-events: none;
+    letter-spacing: 0.06em;
+  }
+
+  /* model-viewer default slot — hide poster slot text fallback */
+  model-viewer::part(default) { overflow: hidden; }
+
+  @media (max-width: 600px) {
+    .overlay { padding: 14px 16px; }
+    .overlay h1 { font-size: 14px; }
+    .overlay a { font-size: 12px; padding: 6px 12px; }
+    .hint { font-size: 11px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #status .spinner { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="overlay">
+    <h1>10 · 3D Model Viewer</h1>
+    <a href="../">← lab 首页</a>
+  </div>
+
+  <model-viewer
+    id="mv"
+    src="https://modelviewer.dev/shared-assets/models/Astronaut.glb"
+    alt="3D 宇航员模型"
+    auto-rotate
+    camera-controls
+    environment-image="neutral"
+    shadow-intensity="1"
+    shadow-softness="0.8"
+    camera-orbit="15deg 80deg 3.5m"
+    min-camera-orbit="auto auto 2m"
+    max-camera-orbit="auto auto 8m"
+    poster="https://modelviewer.dev/shared-assets/models/Astronaut-poster.png"
+    reveal="auto"
+  >
+  </model-viewer>
+
+  <div class="horizon"></div>
+
+  <div id="status">
+    <div class="spinner"></div>
+    <div class="text">模型加载中…</div>
+  </div>
+
+  <div class="hint">拖拽旋转 · 滚轮缩放 · 双指捏合</div>
+
+  <script>
+    (function () {
+      var mv = document.getElementById('mv');
+      var status = document.getElementById('status');
+      var text = status.querySelector('.text');
+
+      // prefers-reduced-motion: disable auto-rotate
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        mv.removeAttribute('auto-rotate');
+      }
+
+      // model loaded successfully — fade out loading indicator
+      mv.addEventListener('load', function () {
+        status.classList.add('hidden');
+      });
+
+      // error fallback
+      mv.addEventListener('error', function () {
+        text.textContent = '模型加载失败,请检查网络后刷新重试';
+        status.classList.add('error');
+        status.classList.remove('hidden');
+      });
+
+      // safety: long-load hint after 12s
+      setTimeout(function () {
+        if (!status.classList.contains('hidden') && !status.classList.contains('error')) {
+          text.textContent = '仍在加载中,请稍候…';
+        }
+      }, 12000);
+    })();
+  </script>
+
+</body>
+</html>

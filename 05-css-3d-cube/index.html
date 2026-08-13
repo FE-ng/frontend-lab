@@ -165,7 +165,7 @@
     transform-style: preserve-3d;
     will-change: transform;
     animation: cube-spin 18s linear infinite;
-    filter: drop-shadow(0 0 26px rgba(180, 107, 255, 0.55)) drop-shadow(0 0 60px rgba(106, 255, 255, 0.25));
+    /* 注意:filter!=none 会把 transform-style 强制拍平成 flat,6 个面会塌成平面 —— 辉光改由 .face 的 box-shadow 承担 */
   }
   @keyframes cube-spin {
     0%   { transform: rotateY(0deg) rotateX(12deg); }
@@ -215,7 +215,7 @@
     transform-style: preserve-3d;
     will-change: transform;
     animation: core-spin 14s linear infinite reverse;
-    filter: drop-shadow(0 0 16px rgba(255, 100, 200, 0.85)) drop-shadow(0 0 34px rgba(106, 255, 255, 0.5));
+    /* 同上:不在 core 上用 filter,core 面已有 box-shadow 辉光 */
   }
   @keyframes core-spin {
     0%   { transform: rotateY(0deg) rotateX(-14deg); }
