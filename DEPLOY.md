@@ -1,6 +1,8 @@
 # 部署 frontend-lab
 
-单文件静态站,无需构建。双部署:GitHub Pages(海外/VPN)+ Vercel(国内直连)。
+单文件静态站,无需构建。双部署:GitHub Pages(海外/VPN)+ Vercel。
+
+> ✅ **Git 集成已开启**:`git push` 到 main → Vercel 自动构建+部署到 `frontend-lab-ten.vercel.app`(同 droplets 机制)。无需手动 `vercel deploy`。GitHub Pages 侧由 `.github` 或 root 直服务同步更新。
 
 ## 现状:GitHub Pages(已上线)
 画廊与各 demo 直接从 main 根目录服务,免构建:
