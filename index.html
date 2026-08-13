@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>frontend-lab · 单文件炫技集</title>
+<style>
+  @property --hue { syntax: "<angle>"; inherits: true; initial-value: 220deg; }
+  * { box-sizing: border-box; margin: 0; }
+  body { min-height: 100vh; background: #05060d; color: #eef2ff; font: 16px/1.6 -apple-system,"Segoe UI","PingFang SC",system-ui,sans-serif; padding: 48px 24px; animation: hue 40s linear infinite; overflow-x: hidden; }
+  @keyframes hue { to { --hue: 580deg; } }
+  .bg { position: fixed; inset: 0; z-index: -1; filter: blur(80px) saturate(140%); opacity: .7; }
+  .bg i { position: absolute; border-radius: 50%; mix-blend-mode: screen; }
+  .bg i:nth-child(1) { width: 55vw; height: 55vw; left: -8%; top: -10%; background: radial-gradient(circle, hsl(var(--hue) 90% 60%), transparent 60%); }
+  .bg i:nth-child(2) { width: 50vw; height: 50vw; right: -10%; bottom: -10%; background: radial-gradient(circle, hsl(calc(var(--hue) + 120deg) 85% 58%), transparent 60%); }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: clamp(34px, 7vw, 64px); font-weight: 800; letter-spacing: -.03em; line-height: 1;
+    background: linear-gradient(120deg,#fff,var(--brand,#7c5cff) 60%,#18d6c9); background-clip: text; -webkit-background-clip: text; color: transparent; }
+  :root { --brand:#7c5cff; }
+  .lede { color: #8b93b5; margin: 14px 0 36px; max-width: 56ch; font-size: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap: 18px; }
+  a.demo { display: block; padding: 24px; border-radius: 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); text-decoration: none; color: inherit; transition: transform .18s, border-color .18s, background .18s; backdrop-filter: blur(8px); }
+  a.demo:hover { transform: translateY(-3px); border-color: rgba(124,92,255,.6); background: rgba(124,92,255,.08); }
+  .demo .n { font-size: 12px; color: #18d6c9; letter-spacing: .15em; font-weight: 700; }
+  .demo h2 { font-size: 20px; margin: 8px 0 6px; }
+  .demo p { color: #8b93b5; font-size: 13.5px; }
+  .demo .tags { margin-top: 14px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .demo .tags span { font-size: 11px; color: #b9c0e0; border: 1px solid rgba(255,255,255,.14); padding: 2px 8px; border-radius: 999px; }
+  footer { margin-top: 48px; color: #5a637f; font-size: 12px; }
+  footer a { color: #18d6c9; text-decoration: none; }
+</style>
+</head>
+<body>
+  <div class="bg" aria-hidden="true"><i></i><i></i></div>
+  <div class="wrap">
+    <h1>frontend-lab</h1>
+    <p class="lede">单文件、零依赖的前端炫技集。每个 demo 都是一个独立 HTML,旨在把 CSS / Canvas / 3D / 现代浏览器 API 的硬功底摆在台面上。</p>
+    <div class="grid">
+      <a class="demo" href="01-aurora-parallax/">
+        <div class="n">01</div>
+        <h2>Aurora · 3D 视差 Hero</h2>
+        <p>极光背景 + Canvas 星图 + preserve-3d 分层视差 + Scroll-Driven reveal。</p>
+        <div class="tags"><span>CSS 3D</span><span>@property</span><span>Canvas</span><span>Scroll-Driven</span><span>mix-blend</span></div>
+      </a>
+      <a class="demo" href="01-aurora-parallax/" style="opacity:.4">
+        <div class="n">02</div>
+        <h2>即将到来</h2>
+        <p>下一个炫技 demo 正在路上 —— shader 全屏背景 / Three.js 粒子 / 纯 CSS 3D...</p>
+        <div class="tags"><span>待选</span></div>
+      </a>
+    </div>
+    <footer>frontend-lab · <a href="https://github.com/FE-ng/fe-codegen-eval">FE-ng</a></footer>
+  </div>
+</body>
+</html>

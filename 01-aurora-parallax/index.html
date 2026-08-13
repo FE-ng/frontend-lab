@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Aurora · 3D Parallax Hero — frontend-lab</title>
+<style>
+  /* ===== 注册自定义属性:让色相可被平滑动画(@property 炫技点) ===== */
+  @property --hue { syntax: "<angle>"; inherits: true; initial-value: 200deg; }
+
+  :root {
+    --bg: #05060d;
+    --fg: #eef2ff;
+    --muted: #8b93b5;
+    --brand: #7c5cff;
+    --brand-2: #18d6c9;
+    --glass: rgba(255,255,255,.06);
+    --glass-border: rgba(255,255,255,.12);
+    --maxw: 1120px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: clamp(15px, 1.05vw + 0.6rem, 17px)/1.6 -apple-system, "Segoe UI", "PingFang SC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ===== 滚动进度条:Scroll-Driven Animations(animation-timeline: scroll()) ===== */
+  #progress {
+    position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 100;
+    background: linear-gradient(90deg, var(--brand), var(--brand-2));
+    transform-origin: 0 50%; transform: scaleX(0);
+    animation: grow linear both;
+    animation-timeline: scroll(root);
+  }
+  @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @supports not (animation-timeline: scroll()) { #progress { display: none; } }
+
+  /* ===== 极光背景:多层 radial-gradient + screen 混合 + blur + hue 动画 ===== */
+  .aurora { position: fixed; inset: -20vh -10vw; z-index: 0; filter: blur(70px) saturate(140%); opacity: .85; pointer-events: none; }
+  .aurora i { position: absolute; border-radius: 50%; mix-blend-mode: screen; animation: drift 18s ease-in-out infinite; }
+  .aurora i:nth-child(1) { width: 50vw; height: 50vw; left: 8%; top: 4%; background: radial-gradient(circle, hsl(var(--hue) 90% 62%), transparent 60%); }
+  .aurora i:nth-child(2) { width: 45vw; height: 45vw; right: 6%; top: 18%; background: radial-gradient(circle, hsl(calc(var(--hue) + 70deg) 90% 60%), transparent 60%); animation-delay: -6s; animation-duration: 22s; }
+  .aurora i:nth-child(3) { width: 60vw; height: 60vw; left: 30%; top: 45%; background: radial-gradient(circle, hsl(calc(var(--hue) + 150deg) 85% 58%), transparent 60%); animation-delay: -11s; animation-duration: 26s; }
+  .aurora i:nth-child(4) { width: 38vw; height: 38vw; left: 55%; top: 2%; background: radial-gradient(circle, hsl(calc(var(--hue) - 40deg) 90% 64%), transparent 60%); animation-delay: -3s; }
+  @keyframes drift {
+    0%,100% { transform: translate3d(0,0,0) scale(1); }
+    33% { transform: translate3d(6vw,-4vh,0) scale(1.12); }
+    66% { transform: translate3d(-5vw,5vh,0) scale(.92); }
+  }
+  body { animation: hue 30s linear infinite; }
+  @keyframes hue { to { --hue: 560deg; } }
+
+  /* canvas 星图 */
+  #stars { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+
+  /* 噪点纹理叠加,去塑料感 */
+  .grain { position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: .05; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+  /* ===== Hero ===== */
+  .hero { position: relative; z-index: 3; min-height: 100vh; display: grid; place-items: center; padding: 80px 24px 120px;
+    perspective: 1000px; }
+
+  .topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 50; display: flex; align-items: center; gap: 10px;
+    padding: 16px 24px; font-size: 13px; color: var(--muted); backdrop-filter: blur(8px); }
+  .topbar .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--brand-2); box-shadow: 0 0 12px var(--brand-2); }
+  .topbar .spacer { flex: 1; }
+  .topbar a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--glass-border); }
+  .topbar a:hover { color: var(--fg); }
+
+  /* 3D 场景:preserve-3d + translateZ 分层 + 指针视差 */
+  .stage { position: relative; width: min(900px, 92vw); transform-style: preserve-3d;
+    transform: rotateX(var(--rx, 6deg)) rotateY(var(--ry, -8deg));
+    transition: transform .2s ease-out; }
+
+  .title { transform: translateZ(40px); transform-style: preserve-3d; text-align: center; }
+  .title h1 { margin: 0; font-size: clamp(44px, 11vw, 132px); font-weight: 800; letter-spacing: -.04em; line-height: .92;
+    background: linear-gradient(120deg, #fff 10%, var(--brand) 45%, var(--brand-2) 70%, #fff 95%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 12px 40px rgba(124,92,255,.35)); animation: float 7s ease-in-out infinite; }
+  .title p { margin: 18px 0 0; color: var(--muted); font-size: clamp(14px, 1.6vw, 18px); letter-spacing: .02em; }
+  @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+  /* 漂浮玻璃卡:不同 translateZ 形成立体层次 */
+  .chip { position: absolute; padding: 10px 16px; border-radius: 14px; background: var(--glass);
+    border: 1px solid var(--glass-border); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    color: var(--fg); font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.35); white-space: nowrap; }
+  .chip b { color: var(--brand-2); }
+  .chip.c1 { top: 6%; left: -4%; transform: translateZ(120px); animation: float 9s ease-in-out infinite; }
+  .chip.c2 { bottom: 10%; right: -2%; transform: translateZ(80px); animation: float 8s ease-in-out infinite -2s; }
+  .chip.c3 { top: 40%; right: 8%; transform: translateZ(-60px); opacity: .8; animation: float 11s ease-in-out infinite -4s; }
+  .chip.c4 { bottom: 22%; left: 6%; transform: translateZ(160px); animation: float 7.5s ease-in-out infinite -1s; }
+
+  /* CTA */
+  .cta { display: inline-flex; margin-top: 26px; padding: 11px 22px; border-radius: 999px; text-decoration: none; color: #fff; font-weight: 600; font-size: 14px;
+    background: linear-gradient(120deg, var(--brand), var(--brand-2)); box-shadow: 0 8px 24px rgba(124,92,255,.4);
+    transform: translateZ(60px); transition: transform .18s, box-shadow .18s; }
+  .cta:hover { transform: translateZ(60px) translateY(-2px); box-shadow: 0 14px 34px rgba(124,92,255,.55); }
+
+  .scrollhint { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); color: var(--muted); font-size: 12px; letter-spacing: .2em; animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: .4; } 50% { opacity: 1; } }
+
+  /* ===== 滚动揭示区:animation-timeline: view() + @supports 降级 ===== */
+  .section { position: relative; z-index: 3; max-width: var(--maxw); margin: 0 auto; padding: 40px 24px 120px; }
+  .section h2 { font-size: clamp(24px, 4vw, 38px); font-weight: 700; letter-spacing: -.02em; margin: 0 0 8px; }
+  .section .lede { color: var(--muted); margin: 0 0 40px; max-width: 60ch; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+  .card { padding: 26px 24px; border-radius: 18px; background: var(--glass); border: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px); opacity: 0; transform: translateY(40px); }
+  .card h3 { margin: 0 0 8px; font-size: 18px; }
+  .card .tag { display: inline-block; font-size: 11px; color: var(--brand-2); border: 1px solid var(--glass-border); padding: 2px 9px; border-radius: 999px; margin-bottom: 12px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  /* 现代写法:滚动进入即播 reveal */
+  @supports (animation-timeline: view()) {
+    .card { animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% cover 35%; }
+    @keyframes reveal { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+  }
+
+  footer { position: relative; z-index: 3; text-align: center; color: var(--muted); font-size: 12px; padding: 30px 24px 60px; }
+  footer a { color: var(--brand-2); text-decoration: none; }
+
+  @media (max-width: 640px) { .chip.c3, .chip.c1 { display: none; } .topbar a.detail { display: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .aurora i, .title h1, .chip, .cta, .scrollhint, body { animation: none !important; }
+    .card { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+  <div id="progress"></div>
+
+  <header class="topbar">
+    <span class="dot"></span>
+    <span>frontend-lab / 01 · aurora-parallax</span>
+    <span class="spacer"></span>
+    <a class="detail" href="#how">它展现了什么 ↓</a>
+    <a href="https://github.com/FE-ng/fe-codegen-eval" target="_blank" rel="noopener">GitHub ↗</a>
+  </header>
+
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <canvas id="stars" aria-hidden="true"></canvas>
+  <div class="grain" aria-hidden="true"></div>
+
+  <section class="hero">
+    <div class="stage" id="stage">
+      <div class="chip c1"><b>@property</b> 色相动画</div>
+      <div class="chip c2">Canvas <b>星图</b> + 视差</div>
+      <div class="chip c3">mix-blend-mode · screen</div>
+      <div class="chip c4">preserve-3d 分层</div>
+      <div class="title">
+        <h1>AURORA</h1>
+        <p>纯 CSS 3D 视差 · Canvas 粒子星图 · Scroll-Driven reveal</p>
+        <a class="cta" href="#how">看看它证明了什么</a>
+      </div>
+      <div class="scrollhint">SCROLL</div>
+    </div>
+  </section>
+
+  <section class="section" id="how">
+    <h2>这个 demo 每一处都在"炫技"</h2>
+    <p class="lede">单文件、零依赖。下面这些不是堆砌,而是每项都可单独拿出来讲清楚原理的硬功底。</p>
+    <div class="grid">
+      <div class="card"><span class="tag">CSS 3D</span><h3>preserve-3d 分层视差</h3><p>perspective + translateZ 把玻璃卡分到不同深度,指针驱动 rotateX/rotateY,产生真实视差,非 transform 模拟。</p></div>
+      <div class="card"><span class="tag">CSS Houdini</span><h3>@property 色相动画</h3><p>注册 --hue 为 &lt;angle&gt; 自定义属性,极光 30s 平滑变色——普通 CSS 变量无法做过渡动画,这是 Houdini 才能。</p></div>
+      <div class="card"><span class="tag">合成与混合</span><h3>极光 = 4 层 radial + screen + blur</h3><p>多层径向渐变以 screen 混合 + 70px blur + saturate,纯 CSS 拟出流体极光,无任何图片/视频。</p></div>
+      <div class="card"><span class="tag">Canvas</span><h3>星图 + 指针视差</h3><p>rAF 驱动的粒子场,按深度差异化视差偏移,近邻粒子连线成星座,devicePixelRatio 自适应。</p></div>
+      <div class="card"><span class="tag">Scroll-Driven</span><h3>animation-timeline: view()</h3><p>卡片揭示用最新的滚动驱动动画 API,浏览器原生 распис,无 JS 库;旧浏览器 @support 回退到 IntersectionObserver。</p></div>
+      <div class="card"><span class="tag">可访问性</span><h3>prefers-reduced-motion</h3><p>尊重系统"减少动效",自动停掉极光/浮动/粒子,内容仍完整可读——炫技但不失职业素养。</p></div>
+    </div>
+  </section>
+
+  <footer>frontend-lab · 单文件炫技集 · <a href="https://github.com/FE-ng/fe-codegen-eval">FE-ng</a></footer>
+
+<script>
+(function () {
+  "use strict";
+  var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---- 指针视差:只算一次,CSS 与 canvas 共用 ---- */
+  var tx = 0, ty = 0, cx = 0, cy = 0;
+  var stage = document.getElementById("stage");
+  function onMove(e) {
+    var p = e.touches ? e.touches[0] : e;
+    tx = (p.clientX / innerWidth - 0.5) * 2;
+    ty = (p.clientY / innerHeight - 0.5) * 2;
+  }
+  addEventListener("pointermove", onMove, { passive: true });
+  addEventListener("deviceorientation", function (e) {
+    if (e.gamma == null) return;
+    tx = Math.max(-1, Math.min(1, e.gamma / 45));
+    ty = Math.max(-1, Math.min(1, e.beta / 45 - 0.5));
+  });
+
+  /* ---- 3D 场景旋转 + 星图视差,统一在 rAF 里 ease ---- */
+  var cvs = document.getElementById("stars");
+  var ctx = cvs.getContext("2d");
+  var DPR = Math.min(devicePixelRatio || 1, 2);
+  var W = 0, H = 0, stars = [];
+
+  function resize() {
+    W = innerWidth; H = innerHeight;
+    cvs.width = W * DPR; cvs.height = H * DPR;
+    cvs.style.width = W + "px"; cvs.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    var n = reduce ? 0 : Math.min(110, Math.floor(W * H / 14000));
+    stars = [];
+    for (var i = 0; i < n; i++) {
+      stars.push({
+        x: Math.random() * W, y: Math.random() * H,
+        z: 0.3 + Math.random() * 0.9,            // 深度:决定视差幅度与亮度
+        vx: (Math.random() - 0.5) * 0.08,
+        vy: (Math.random() - 0.5) * 0.08
+      });
+    }
+  }
+  resize();
+  addEventListener("resize", resize);
+
+  function frame() {
+    cx += (tx - cx) * 0.06; cy += (ty - cy) * 0.06;
+    if (!reduce && stage) {
+      stage.style.setProperty("--ry", (-8 + cx * 10).toFixed(2) + "deg");
+      stage.style.setProperty("--rx", (6 - cy * 8).toFixed(2) + "deg");
+    }
+    ctx.clearRect(0, 0, W, H);
+    for (var i = 0; i < stars.length; i++) {
+      var s = stars[i];
+      s.x += s.vx; s.y += s.vy;
+      if (s.x < 0) s.x += W; else if (s.x > W) s.x -= W;
+      if (s.y < 0) s.y += H; else if (s.y > H) s.y -= H;
+      var px = s.x + cx * 60 * s.z, py = s.y + cy * 60 * s.z;
+      var a = 0.25 + s.z * 0.6;
+      ctx.beginPath();
+      ctx.arc(px, py, s.z * 1.3, 0, 6.2832);
+      ctx.fillStyle = "rgba(200,210,255," + a + ")";
+      ctx.fill();
+      // 近邻连线成星座
+      for (var j = i + 1; j < stars.length; j++) {
+        var o = stars[j];
+        var dx = px - (o.x + cx * 60 * o.z), dy = py - (o.y + cy * 60 * o.z);
+        var d2 = dx * dx + dy * dy;
+        if (d2 < 12000) {
+          ctx.strokeStyle = "rgba(150,170,255," + (0.16 * (1 - d2 / 12000)) + ")";
+          ctx.lineWidth = 0.6;
+          ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(o.x + cx * 60 * o.z, o.y + cy * 60 * o.z); ctx.stroke();
+        }
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  /* ---- 滚动揭示降级:不支持 animation-timeline 时用 IO ---- */
+  if (!CSS.supports("animation-timeline", "view()")) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (en) {
+        if (en.isIntersecting) { en.target.style.opacity = 1; en.target.style.transform = "none"; io.unobserve(en.target); }
+      });
+    }, { threshold: 0.15 });
+    document.querySelectorAll(".card").forEach(function (c) { io.observe(c); });
+  }
+})();
+</script>
+</body>
+</html>
