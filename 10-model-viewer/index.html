@@ -118,6 +118,12 @@
 
   #status.hidden { opacity: 0; }
 
+  /* 进度条 */
+  .track { width: 220px; max-width: 60vw; height: 4px; border-radius: 999px; background: rgba(144,144,208,0.18); margin: 14px auto 0; overflow: hidden; }
+  .fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg,#7c5cff,#18d6c9); transition: width .25s ease; }
+  #status .sub { margin-top: 10px; font-size: 12px; color: #6a6a90; min-height: 14px; letter-spacing: 0; }
+  #status.error .track, #status.error .sub { display: none; }
+
   /* interaction hint */
   .hint {
     position: fixed;
@@ -164,7 +170,6 @@
     camera-orbit="15deg 80deg 3.5m"
     min-camera-orbit="auto auto 2m"
     max-camera-orbit="auto auto 8m"
-    poster="https://modelviewer.dev/shared-assets/models/Astronaut-poster.png"
     reveal="auto"
   >
   </model-viewer>
@@ -174,6 +179,8 @@
   <div id="status">
     <div class="spinner"></div>
     <div class="text">模型加载中…</div>
+    <div class="track"><div class="fill" id="fill"></div></div>
+    <div class="sub" id="sub"></div>
   </div>
 
   <div class="hint">拖拽旋转 · 滚轮缩放 · 双指捏合</div>
@@ -183,30 +190,53 @@
       var mv = document.getElementById('mv');
       var status = document.getElementById('status');
       var text = status.querySelector('.text');
+      var fill = document.getElementById('fill');
+      var sub = document.getElementById('sub');
+      var maxProg = 0;
 
-      // prefers-reduced-motion: disable auto-rotate
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         mv.removeAttribute('auto-rotate');
       }
 
-      // model loaded successfully — fade out loading indicator
+      function fail(msg) {
+        text.textContent = msg;
+        status.classList.add('error');
+        status.classList.remove('hidden');
+      }
+
+      // 真实进度:model-viewer 的 progress 事件,detail.totalProgress 0..1
+      mv.addEventListener('progress', function (e) {
+        var p = e.detail && typeof e.detail.totalProgress === 'number' ? e.detail.totalProgress : 0;
+        if (p > maxProg) maxProg = p;
+        var pct = Math.round(p * 100);
+        fill.style.width = pct + '%';
+        text.textContent = '模型加载中 ' + pct + '%';
+      });
+
       mv.addEventListener('load', function () {
+        fill.style.width = '100%';
         status.classList.add('hidden');
       });
 
-      // error fallback
       mv.addEventListener('error', function () {
-        text.textContent = '模型加载失败,请检查网络后刷新重试';
-        status.classList.add('error');
-        status.classList.remove('hidden');
+        fail('模型加载失败(海外 CDN 可能被墙,可挂代理重试)');
       });
 
-      // safety: long-load hint after 12s
+      // 兜底1:组件脚本本身没加载(jsdelivr 被墙)→ customElements 不会有 model-viewer,load/error 永不触发
       setTimeout(function () {
-        if (!status.classList.contains('hidden') && !status.classList.contains('error')) {
-          text.textContent = '仍在加载中,请稍候…';
+        if (status.classList.contains('hidden') || status.classList.contains('error')) return;
+        if (!window.customElements.get('model-viewer')) {
+          fail('3D 组件脚本加载失败(jsdelivr CDN 可能被墙),请挂代理后刷新');
+        } else if (maxProg < 0.1) {
+          sub.textContent = '网络较慢:模型来自海外 CDN,挂代理可显著加速';
         }
-      }, 12000);
+      }, 9000);
+
+      // 兜底2:有进度但卡住
+      setTimeout(function () {
+        if (status.classList.contains('hidden') || status.classList.contains('error')) return;
+        if (maxProg < 0.5) sub.textContent = '仍在拉取,若久无进度可刷新或挂代理';
+      }, 20000);
     })();
   </script>
 

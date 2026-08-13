@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>22 · Reaction-Diffusion (Gray-Scott) · frontend-lab</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  :root {
+    --bg: #05060d;
+    --purple: #7c5cff;
+    --teal: #18d6c9;
+    --pink: #ff2e9a;
+    --ink: #eef2ff;
+    --muted: #8b93b5;
+  }
+  html, body {
+    height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 -apple-system, "Segoe UI", "PingFang SC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #cv { position: fixed; inset: 0; display: block; touch-action: none; }
+
+  /* ---- 左上 overlay ---- */
+  .head {
+    position: fixed; top: 22px; left: 26px; z-index: 10;
+    display: flex; flex-direction: column; gap: 5px; pointer-events: none;
+    max-width: calc(100vw - 180px);
+  }
+  .head .num { font-size: 12px; color: var(--teal); letter-spacing: .22em; font-weight: 700; }
+  .head h1 {
+    font-size: clamp(18px, 2.4vw, 26px); font-weight: 700; letter-spacing: -.02em;
+    background: linear-gradient(120deg, #fff, var(--purple) 55%, var(--teal));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 4px 18px rgba(0,0,0,.45));
+  }
+  .head .sub { color: var(--muted); font-size: 12.5px; letter-spacing: .04em; }
+
+  /* ---- 右上 back ---- */
+  a.back {
+    position: fixed; top: 22px; right: 26px; z-index: 10;
+    color: var(--teal); text-decoration: none; font-size: 13px; letter-spacing: .05em;
+    border: 1px solid rgba(24,214,201,.3); padding: 6px 14px; border-radius: 20px;
+    background: rgba(5,6,13,.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: color .2s, border-color .2s, background .2s;
+  }
+  a.back:hover { color: #fff; border-color: var(--teal); background: rgba(24,214,201,.12); }
+
+  /* ---- 中央 hint ---- */
+  .hint {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    z-index: 5; pointer-events: none; text-align: center;
+    color: rgba(255,255,255,.34); font-size: 12.5px; letter-spacing: .06em;
+    transition: opacity .45s ease; padding: 0 16px;
+  }
+  .hint.faded { opacity: 0; }
+
+  /* ---- 底部控制面板 ---- */
+  .panel {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    z-index: 10; display: flex; flex-direction: column; gap: 10px;
+    padding: 14px 18px; min-width: 300px; max-width: calc(100vw - 32px);
+    background: rgba(8,10,24,.62); border: 1px solid rgba(255,255,255,.10);
+    border-radius: 14px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    pointer-events: auto;
+  }
+  .panel .row { display: flex; align-items: center; gap: 10px; }
+  .panel label { color: var(--muted); font-size: 11.5px; letter-spacing: .08em; min-width: 36px; }
+  .panel .val { color: var(--teal); font-size: 11.5px; font-variant-numeric: tabular-nums; min-width: 50px; text-align: right; }
+
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    flex: 1; height: 4px; border-radius: 4px;
+    background: linear-gradient(90deg, var(--pink), var(--purple), var(--teal));
+    outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; border: 2px solid var(--teal);
+    box-shadow: 0 0 8px rgba(24,214,201,.6);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; border: 2px solid var(--teal);
+  }
+  input[type=range]:focus-visible { box-shadow: 0 0 0 3px rgba(24,214,201,.25); }
+
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-top: 2px; }
+  .presets button {
+    pointer-events: auto; padding: 5px 11px; cursor: pointer;
+    font-size: 11px; letter-spacing: .04em; color: #c7cdec;
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 999px;
+    transition: border-color .2s, color .2s, background .2s;
+  }
+  .presets button:hover { color: var(--teal); border-color: rgba(24,214,201,.5); background: rgba(24,214,201,.06); }
+  .presets button.reset { color: var(--pink); }
+  .presets button.reset:hover { color: #fff; border-color: var(--pink); background: rgba(255,46,154,.14); }
+
+  @media (max-width: 540px) {
+    .head { top: 16px; left: 16px; max-width: calc(100vw - 120px); }
+    a.back { top: 16px; right: 16px; padding: 5px 11px; font-size: 12px; }
+    .panel { bottom: 14px; padding: 11px 12px; min-width: 0; width: calc(100vw - 24px); }
+    .presets button { padding: 4px 8px; font-size: 10.5px; }
+    .hint { font-size: 11.5px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    input[type=range] { cursor: default; }
+    .head h1 { filter: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div class="head">
+  <span class="num">22</span>
+  <h1>Reaction-Diffusion (Gray-Scott)</h1>
+  <span class="sub">u / v 双物质反应扩散 · 卷积拉普拉斯 · 色调映射</span>
+</div>
+
+<a class="back" href="../">← lab 首页</a>
+
+<div class="hint" id="hint">拖动鼠标 — 在场上播种扰动</div>
+
+<div class="panel">
+  <div class="row">
+    <label for="feed">feed</label>
+    <input id="feed" type="range" min="0.010" max="0.080" step="0.0005" value="0.0367" aria-label="feed rate" />
+    <span class="val" id="feedVal">0.0367</span>
+  </div>
+  <div class="row">
+    <label for="kill">kill</label>
+    <input id="kill" type="range" min="0.030" max="0.078" step="0.0005" value="0.0649" aria-label="kill rate" />
+    <span class="val" id="killVal">0.0649</span>
+  </div>
+  <div class="presets">
+    <button type="button" data-f="0.0367" data-k="0.0649">珊瑚</button>
+    <button type="button" data-f="0.0290" data-k="0.0570">迷宫</button>
+    <button type="button" data-f="0.0220" data-k="0.0590">条纹</button>
+    <button type="button" data-f="0.0340" data-k="0.0630">斑点</button>
+    <button type="button" data-f="0.0550" data-k="0.0620">滑行</button>
+    <button type="button" class="reset" id="resetBtn">↺ 重置</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var cv = document.getElementById("cv");
+  var ctx = cv.getContext("2d", { alpha: false });
+  var hintEl = document.getElementById("hint");
+  var feedEl = document.getElementById("feed");
+  var killEl = document.getElementById("kill");
+  var feedValEl = document.getElementById("feedVal");
+  var killValEl = document.getElementById("killVal");
+  var presetBtns = document.querySelectorAll(".presets button[data-f]");
+  var resetBtn = document.getElementById("resetBtn");
+
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // 每帧卷积重,DPR 压到 1.5
+  var DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+
+  // ---- 反应扩散参数 ----
+  var F = parseFloat(feedEl.value);    // feed
+  var k = parseFloat(killEl.value);    // kill
+  var Du = 0.16, Dv = 0.08, dt = 1.0;  // 扩散系数 / 时间步
+
+  // ---- 网格 / 缓冲 ----
+  var W = 0, H = 0;          // CSS px
+  var GW = 0, GH = 0;        // 网格尺寸
+  var cellSize = 4;          // 一个网格 = 多少 CSS px
+  var u, v, u2, v2;          // Float32Array,双缓冲
+  var img, imgData;          // ImageData,直接写 RGBA
+  var back, bctx;            // 后缓冲 canvas(offscreen)
+
+  // ---- 颜色查找表: V(0..1) → 深 → 紫 → 青 → 粉白 ----
+  // Gray-Scott 视觉的灵魂:V 是反应物浓度,映射成深空品牌渐变
+  var lut;
+  function buildLUT() {
+    var stops = [
+      [0.00,  10,   2,  26],   // 深近黑
+      [0.16,  28,  12,  66],   // 暗紫
+      [0.34,  84,  34, 156],   // 中紫
+      [0.55, 124,  92, 255],   // 品牌紫 #7c5cff
+      [0.72,  24, 214, 201],   // 品牌青 #18d6c9
+      [0.88, 255,  46, 154],   // 品牌粉 #ff2e9a
+      [1.00, 255, 238, 246]    // 粉白光
+    ];
+    lut = new Uint8ClampedArray(256 * 4);
+    for (var i = 0; i < 256; i++) {
+      var t = i / 255;
+      var s = 1;
+      while (s < stops.length && stops[s][0] < t) s++;
+      var a = stops[s - 1], b = stops[s];
+      var span = b[0] - a[0];
+      var f = span > 0 ? (t - a[0]) / span : 0;
+      lut[i * 4]     = a[1] + (b[1] - a[1]) * f;
+      lut[i * 4 + 1] = a[2] + (b[2] - a[2]) * f;
+      lut[i * 4 + 2] = a[3] + (b[3] - a[3]) * f;
+      lut[i * 4 + 3] = 255;
+    }
+  }
+  buildLUT();
+
+  // ---- 种子:在网格上注入高 V(反应物),触发珊瑚状扩散 ----
+  function seedAt(cx, cy, r) {
+    if (!u) return;
+    r = Math.max(1, r);
+    var r2 = r * r;
+    for (var dy = -r; dy <= r; dy++) {
+      var py = cy + dy; if (py < 0 || py >= GH) continue;
+      for (var dx = -r; dx <= r; dx++) {
+        var px = cx + dx; if (px < 0 || px >= GW) continue;
+        var d2 = dx * dx + dy * dy;
+        if (d2 > r2) continue;
+        var idx = py * GW + px;
+        // 中心强、边缘弱
+        var f = 1 - d2 / r2;
+        v[idx] = Math.min(1, v[idx] + 0.9 * f);
+        u[idx] = Math.max(0, u[idx] - 0.4 * f);
+      }
+    }
+  }
+
+  function seedGrid() {
+    var n = GW * GH;
+    if (!u || u.length !== n) {
+      u  = new Float32Array(n);
+      v  = new Float32Array(n);
+      u2 = new Float32Array(n);
+      v2 = new Float32Array(n);
+      imgData = bctx.createImageData(GW, GH);
+      img = imgData.data;
+    }
+    for (var i = 0; i < n; i++) { u[i] = 1.0; v[i] = 0.0; }
+    // 中心 + 若干随机点,自演化出多焦点珊瑚纹
+    seedAt(GW >> 1, GH >> 1, Math.max(3, (Math.min(GW, GH) * 0.07) | 0));
+    var seeds = 3 + ((Math.random() * 3) | 0);
+    for (var s = 0; s < seeds; s++) {
+      var x = (GW * (0.18 + Math.random() * 0.64)) | 0;
+      var y = (GH * (0.18 + Math.random() * 0.64)) | 0;
+      seedAt(x, y, 3 + ((Math.random() * 4) | 0));
+    }
+  }
+
+  // ---- resize:作为单文件自包含,resize 时重建网格(按 spec 不必保留旧态) ----
+  var resizeTO = 0;
+  function scheduleResize() {
+    if (resizeTO) clearTimeout(resizeTO);
+    resizeTO = setTimeout(doResize, 160);
+  }
+  function doResize() {
+    resizeTO = 0;
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width  = Math.round(W * DPR);
+    cv.height = Math.round(H * DPR);
+    cv.style.width  = W + "px";
+    cv.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "medium";
+
+    // 网格目标列数:180 ~ 320 之间,平衡画质与卷积开销
+    var target = Math.max(180, Math.min(320, Math.round(W / 3.2)));
+    cellSize = W / target;
+    GW = target;
+    GH = Math.max(120, Math.round(H / cellSize));
+
+    // 后缓冲(GW × GH)
+    back = document.createElement("canvas");
+    back.width = GW; back.height = GH;
+    bctx = back.getContext("2d");
+
+    seedGrid();
+  }
+
+  // ---- 单步:Gray-Scott 更新(u/v → u2/v2) ----
+  // 9 点拉普拉斯核(各向同性):
+  //   0.05  0.20  0.05
+  //   0.20 -1.00  0.20
+  //   0.05  0.20  0.05
+  function step() {
+    var _u = u, _v = v, _u2 = u2, _v2 = v2;
+    var gw = GW, gh = GH;
+    var feed = F, kill = k;
+    var Du_ = Du, Dv_ = Dv, dt_ = dt;
+    for (var j = 1; j < gh - 1; j++) {
+      var row   = j * gw;
+      var upRow = row - gw;
+      var dnRow = row + gw;
+      for (var i = 1; i < gw - 1; i++) {
+        var c = row + i;
+
+        // 拉普拉斯 U / V
+        var lu = (_u[upRow + i - 1] + _u[upRow + i + 1] + _u[dnRow + i - 1] + _u[dnRow + i + 1]) * 0.05
+               + (_u[upRow + i]    + _u[dnRow + i]    + _u[c - 1]         + _u[c + 1])         * 0.2
+               - _u[c];
+        var lv = (_v[upRow + i - 1] + _v[upRow + i + 1] + _v[dnRow + i - 1] + _v[dnRow + i + 1]) * 0.05
+               + (_v[upRow + i]    + _v[dnRow + i]    + _v[c - 1]         + _v[c + 1])         * 0.2
+               - _v[c];
+
+        var ui = _u[c], vi = _v[c];
+        var uvv = ui * vi * vi;
+
+        // Gray-Scott 方程
+        var nu = ui + (Du_ * lu - uvv + feed * (1 - ui)) * dt_;
+        var nv = vi + (Dv_ * lv + uvv - (feed + kill) * vi) * dt_;
+
+        // clamp 防发散(u/v 物理上 ∈ [0,1])
+        _u2[c] = nu < 0 ? 0 : nu > 1 ? 1 : nu;
+        _v2[c] = nv < 0 ? 0 : nv > 1 ? 1 : nv;
+      }
+    }
+    // 交换缓冲
+    u = _u2; u2 = _u;
+    v = _v2; v2 = _v;
+  }
+
+  // ---- 渲染:V → LUT 上色 → 后缓冲 → 双线性放大全屏 ----
+  function render() {
+    var _v = v, _img = img, _lut = lut;
+    var n = GW * GH;
+    for (var i = 0; i < n; i++) {
+      var vi = _v[i];
+      if (vi < 0) vi = 0; else if (vi > 1) vi = 1;
+      var q = ((vi * 255) | 0) * 4;
+      var p = i * 4;
+      _img[p]     = _lut[q];
+      _img[p + 1] = _lut[q + 1];
+      _img[p + 2] = _lut[q + 2];
+      _img[p + 3] = 255;
+    }
+    bctx.putImageData(imgData, 0, 0);
+
+    // 后缓冲整体放大到 CSS px 包围盒;imageSmoothing 开启 → 柔和层次感
+    ctx.fillStyle = "#05060d";
+    ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(back, 0, 0, GW, GH, 0, 0, W, H);
+
+    // 暗角:把边缘收回到深空背景,凸显中央演化
+    var cx = W / 2, cy = H / 2;
+    var g = ctx.createRadialGradient(
+      cx, cy, Math.min(W, H) * 0.32,
+      cx, cy, Math.max(W, H) * 0.72
+    );
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, "rgba(5,6,13,0.55)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // ---- 主循环 ----
+  var frameCount = 0;
+  function loop() {
+    requestAnimationFrame(loop);
+    if (reduceMotion) {
+      // 极慢:每 3 帧迭代 1 次
+      frameCount++;
+      if (frameCount % 3 !== 0) return;
+      step();
+    } else {
+      // 每帧迭代 4 次,扩散速度足够 mesmerizing
+      step(); step(); step(); step();
+    }
+    render();
+  }
+
+  // ---- 鼠标 / 触控:拖动播种(V 注入) ----
+  var drawing = false;
+  var lastX = -1, lastY = -1;
+  var hintFaded = false;
+
+  function toGrid(cx, cy) {
+    return [ (cx / cellSize) | 0, (cy / cellSize) | 0 ];
+  }
+  function fadeHint() {
+    if (!hintFaded) { hintEl.classList.add("faded"); hintFaded = true; }
+  }
+
+  cv.addEventListener("pointerdown", function (e) {
+    drawing = true;
+    var p = toGrid(e.clientX, e.clientY);
+    seedAt(p[0], p[1], 6);
+    lastX = p[0]; lastY = p[1];
+    fadeHint();
+    try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  cv.addEventListener("pointermove", function (e) {
+    if (!drawing) return;
+    var p = toGrid(e.clientX, e.clientY);
+    // 沿拖动路径补种,避免快速拖动留空隙
+    var dx = p[0] - lastX, dy = p[1] - lastY;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    var steps = Math.max(1, Math.ceil(dist / 3));
+    for (var s = 0; s < steps; s++) {
+      var f = (s + 1) / steps;
+      seedAt(Math.round(lastX + dx * f), Math.round(lastY + dy * f), 5);
+    }
+    lastX = p[0]; lastY = p[1];
+  });
+  function endDraw(e) {
+    drawing = false;
+    try { cv.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+  cv.addEventListener("pointerup", endDraw);
+  cv.addEventListener("pointercancel", endDraw);
+  cv.addEventListener("pointerleave", function () { if (drawing) endDraw({ pointerId: 0 }); });
+
+  // ---- UI ----
+  function fmt(x) { return x.toFixed(4); }
+  function onFeed() { F = parseFloat(feedEl.value); feedValEl.textContent = fmt(F); }
+  function onKill() { k = parseFloat(killEl.value); killValEl.textContent = fmt(k); }
+  feedEl.addEventListener("input", onFeed);
+  killEl.addEventListener("input", onKill);
+  onFeed(); onKill();
+
+  function setPreset(fv, kv) {
+    feedEl.value = fv.toFixed(4);
+    killEl.value = kv.toFixed(4);
+    onFeed(); onKill();
+    seedGrid();
+  }
+  for (var i = 0; i < presetBtns.length; i++) {
+    (function (b) {
+      b.addEventListener("click", function () {
+        setPreset(parseFloat(b.dataset.f), parseFloat(b.dataset.k));
+      });
+    })(presetBtns[i]);
+  }
+  resetBtn.addEventListener("click", function () {
+    seedGrid();
+    fadeHint();
+  });
+
+  // ---- 启动 ----
+  window.addEventListener("resize", scheduleResize);
+  doResize();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

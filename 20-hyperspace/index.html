@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>20 · Hyperspace Starfield</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#05060d}
+  canvas{display:block;width:100%;height:100%}
+  .overlay{
+    position:fixed;pointer-events:none;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    color:rgba(255,255,255,.62);font-size:13px;letter-spacing:.05em;
+    z-index:10;text-transform:uppercase;font-weight:500;
+  }
+  .tl{top:20px;left:24px}
+  .tr{top:20px;right:24px;pointer-events:auto}
+  .tr a{color:rgba(255,255,255,.62);text-decoration:none;transition:color .25s,letter-spacing .25s}
+  .tr a:hover{color:#5ec8f5;letter-spacing:.08em}
+  .hint{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    color:rgba(255,255,255,.25);font-size:11px;letter-spacing:.1em;
+    z-index:10;text-transform:uppercase;pointer-events:none;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="overlay tl">20 · Hyperspace Starfield</div>
+<div class="overlay tr"><a href="../">← lab 首页</a></div>
+<div class="hint">scroll to warp · move mouse to steer</div>
+<script>
+(function(){
+'use strict';
+
+var canvas = document.getElementById('c');
+var ctx = canvas.getContext('2d');
+var DPR = Math.min(window.devicePixelRatio || 1, 2);
+var W = 0, H = 0, CX = 0, CY = 0;
+var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---- config ---- */
+var COUNT   = 900;
+var FOCAL   = 320;
+var MAXZ    = 1400;
+var SPREAD  = 2600;
+var HUE     = 195;          /* cyan-blue brand accent */
+
+/* ---- state ---- */
+var speed       = 2;
+var targetSpeed = 2;
+var baseSpeed   = 3;
+var yaw   = 0, pitch = 0;
+var tYaw  = 0, tPitch = 0;
+var mouseX = 0, mouseY = 0;
+var stars = [];
+
+function rnd(a, b){ return Math.random() * (b - a) + a; }
+
+function mkStar(s){
+  s.x = rnd(-SPREAD, SPREAD);
+  s.y = rnd(-SPREAD, SPREAD);
+  s.z = rnd(1, MAXZ);
+  s.px = 0; s.py = 0; s.prev = false;
+  s.brand = Math.random() < 0.18;       /* 18% brand-colored */
+  return s;
+}
+
+function initStars(){
+  stars = [];
+  for (var i = 0; i < COUNT; i++) stars.push(mkStar({}));
+}
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  CX = W / 2;
+  CY = H / 2;
+}
+
+/* ---- main loop ---- */
+function loop(){
+  /* trail fade: lower alpha at high speed = longer ghost trails */
+  var fade;
+  if (reduced) { fade = 1; }
+  else { fade = Math.max(0.03, 0.22 - speed * 0.0045); }
+
+  ctx.fillStyle = reduced ? '#05060d' : 'rgba(5,6,13,' + fade + ')';
+  ctx.fillRect(0, 0, W, H);
+
+  /* smooth interpolation */
+  speed  += (targetSpeed - speed) * 0.06;
+  yaw    += (tYaw - yaw) * 0.08;
+  pitch  += (tPitch - pitch) * 0.08;
+
+  var streaks = !reduced && speed > 0.5;
+  var vx = CX + yaw;   /* vanishing point (steered) */
+  var vy = CY + pitch;
+
+  for (var i = 0; i < stars.length; i++){
+    var s = stars[i];
+
+    /* 3D perspective projection:  screen = world * (focal / z) + center */
+    var sc = FOCAL / s.z;
+    var sx = s.x * sc + vx;
+    var sy = s.y * sc + vy;
+
+    if (streaks && s.prev){
+      /* warp streak: line from last-frame position to current */
+      var a = Math.min(1, (1 - s.z / MAXZ) * 1.7);
+      ctx.strokeStyle = s.brand
+        ? 'hsla(' + HUE + ',82%,66%,' + a + ')'
+        : 'rgba(255,255,255,' + a + ')';
+      ctx.lineWidth = Math.max(0.5, sc * 1.4);
+      ctx.beginPath();
+      ctx.moveTo(s.px, s.py);
+      ctx.lineTo(sx, sy);
+      ctx.stroke();
+    } else {
+      /* static / slow: luminous point */
+      var sz = Math.max(0.4, sc * 1.8);
+      var pa = Math.min(1, (1 - s.z / MAXZ) * 2.2);
+      ctx.fillStyle = s.brand
+        ? 'hsla(' + HUE + ',88%,72%,' + pa + ')'
+        : 'rgba(255,255,255,' + pa + ')';
+      ctx.beginPath();
+      ctx.arc(sx, sy, sz, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    /* remember current screen pos for next frame's streak */
+    s.px = sx; s.py = sy; s.prev = true;
+
+    /* advance toward camera */
+    if (!reduced) s.z -= speed;
+
+    /* recycle when star passes through camera */
+    if (s.z < 1){
+      mkStar(s);
+      s.z = MAXZ;
+      s.prev = false;
+    }
+  }
+
+  requestAnimationFrame(loop);
+}
+
+/* ---- input: mouse steering + speed ---- */
+canvas.addEventListener('mousemove', function(e){
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+  var dx = (mouseX - W / 2) / (W / 2);
+  var dy = (mouseY - H / 2) / (H / 2);
+  /* steering: shift vanishing point */
+  tYaw   = dx * 200;
+  tPitch = dy * 130;
+  /* mouse-Y speed boost: higher = faster */
+  var boost = Math.max(0, 1 - mouseY / H) * 20;
+  targetSpeed = baseSpeed + boost;
+});
+
+/* scroll wheel: main speed control */
+window.addEventListener('wheel', function(e){
+  e.preventDefault();
+  baseSpeed = Math.max(0.5, Math.min(70, baseSpeed + e.deltaY * 0.04));
+  var boost = Math.max(0, 1 - mouseY / H) * 20;
+  targetSpeed = baseSpeed + boost;
+}, { passive: false });
+
+/* touch support */
+var lty = 0;
+canvas.addEventListener('touchmove', function(e){
+  if (e.touches.length > 0){
+    var t = e.touches[0];
+    var dx = (t.clientX - W / 2) / (W / 2);
+    var dy = (t.clientY - H / 2) / (H / 2);
+    tYaw = dx * 200; tPitch = dy * 130;
+    if (lty > 0){
+      baseSpeed = Math.max(0.5, Math.min(70, baseSpeed + (lty - t.clientY) * 0.12));
+    }
+    lty = t.clientY;
+    var boost = Math.max(0, 1 - t.clientY / H) * 20;
+    targetSpeed = baseSpeed + boost;
+  }
+  e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('touchend', function(){ lty = 0; });
+
+window.addEventListener('resize', resize);
+
+/* ---- boot ---- */
+resize();
+initStars();
+if (reduced){ speed = 0; targetSpeed = 0; baseSpeed = 0; }
+loop();
+
+})();
+</script>
+</body>
+</html>

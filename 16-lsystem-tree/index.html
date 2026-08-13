@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>16 · L-system Fractal Tree</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#05060d}
+  canvas{display:block;width:100%;height:100%}
+
+  .ov{position:fixed;z-index:10;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;user-select:none;pointer-events:none}
+  .ov-tl{top:22px;left:26px}
+  .ov-tl .num{color:#7c5cff;font-size:12px;font-weight:700;letter-spacing:3px;text-transform:uppercase}
+  .ov-tl .title{color:rgba(255,255,255,.9);font-size:17px;font-weight:600;margin-top:4px;letter-spacing:.3px}
+  .ov-tl .sub{color:rgba(255,255,255,.32);font-size:11px;margin-top:6px;letter-spacing:.4px}
+
+  .ov-tr{top:22px;right:26px;pointer-events:auto}
+  .ov-tr a{color:rgba(255,255,255,.45);text-decoration:none;font-size:13px;transition:color .25s}
+  .ov-tr a:hover{color:#18d6c9}
+
+  .hint{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    color:rgba(255,255,255,.18);font-size:11px;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    z-index:10;pointer-events:none;letter-spacing:.5px;white-space:nowrap
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="ov ov-tl">
+  <div class="num">16</div>
+  <div class="title">L-system Fractal Tree</div>
+  <div class="sub">mouse = wind · click = regenerate</div>
+</div>
+
+<div class="ov ov-tr"><a href="../">← lab 首页</a></div>
+
+<div class="hint">move mouse to bend the wind · click for a new tree</div>
+
+<script>
+(function(){
+'use strict';
+
+var canvas = document.getElementById('c');
+var ctx = canvas.getContext('2d');
+var DPR = Math.min(window.devicePixelRatio || 1, 2);
+var W = 0, H = 0;
+var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var mouse = { x: 0.5 };
+var leafSprite = null;
+var segBatches = [];
+var leafList = [];
+var P = {};
+
+/* ---- helpers ---- */
+function rand(a, b) { return a + Math.random() * (b - a); }
+
+/* ---- noise (smooth interpolated hash) ---- */
+var nseed = Math.random() * 1000;
+function _hash(n) { var s = Math.sin(n * 12.9898 + nseed) * 43758.5453; return (s - Math.floor(s)) * 2 - 1; }
+function nz(x) {
+  var i = Math.floor(x), f = x - i;
+  var u = f * f * (3 - 2 * f);
+  return _hash(i) * (1 - u) + _hash(i + 1) * u;
+}
+
+/* ---- generate random tree params ---- */
+function genParams() {
+  var twoBranch = Math.random() > 0.28;
+  P.maxDepth   = twoBranch ? Math.floor(rand(9, 11)) : Math.floor(rand(6, 7));
+  P.angle      = rand(0.28, 0.50);
+  P.lenDecay   = rand(0.70, 0.80);
+  P.widDecay   = rand(0.62, 0.76);
+  P.initLen    = rand(100, 155);
+  P.initWid    = rand(5, 10);
+  P.branches   = twoBranch ? 2 : 3;
+  P.asym       = rand(-0.12, 0.12);
+  P.leafSize   = rand(1.2, 2.6);
+  P.leafGlowR  = rand(12, 20);
+  P.wiggle     = rand(0.04, 0.09);
+  nseed = Math.random() * 1000;
+}
+
+/* ---- color: #7c5cff purple → #ff2e9a pink → #18d6c9 cyan ---- */
+function bcol(dep) {
+  var t = dep / P.maxDepth, r, g, b;
+  if (t < 0.5) {
+    var k = t * 2;
+    r = 124 + (255 - 124) * k;
+    g = 92  + (46  - 92)  * k;
+    b = 255 + (154 - 255) * k;
+  } else {
+    var k2 = (t - 0.5) * 2;
+    r = 255 + (24  - 255) * k2;
+    g = 46  + (214 - 46)  * k2;
+    b = 154 + (201 - 154) * k2;
+  }
+  return 'rgb(' + (r | 0) + ',' + (g | 0) + ',' + (b | 0) + ')';
+}
+
+/* ---- pre-render leaf glow sprite ---- */
+function makeLeafSprite() {
+  var sz = 64;
+  var cv = document.createElement('canvas');
+  cv.width = sz; cv.height = sz;
+  var cx = cv.getContext('2d');
+  var c = sz / 2;
+  var g = cx.createRadialGradient(c, c, 0, c, c, c);
+  g.addColorStop(0,    'rgba(210,255,248,0.95)');
+  g.addColorStop(0.12, 'rgba(80,235,215,0.55)');
+  g.addColorStop(0.35, 'rgba(24,214,201,0.18)');
+  g.addColorStop(1,    'rgba(24,214,201,0)');
+  cx.fillStyle = g;
+  cx.fillRect(0, 0, sz, sz);
+  leafSprite = cv;
+}
+
+/* ---- resize ---- */
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width  = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+
+/* ---- recursive tree (populates segBatches + leafList) ---- */
+function branch(x, y, len, ang, dep, t) {
+  if (dep > P.maxDepth || len < 1.5) return;
+
+  var dr = dep / P.maxDepth;
+
+  /* wind sway: amplitude grows quadratically toward tips */
+  var wind = (mouse.x - 0.5) * 2;            /* -1 .. 1 */
+  var amp  = reducedMotion ? 0 : dr * dr * 0.16;
+  var phase = t * 0.0009 + dep * 0.4;
+  var sway = (Math.sin(phase) + nz(phase * 1.3 + dep * 0.7) * 0.35) * amp;
+  sway += wind * dr * dr * 0.13;              /* directional bias */
+
+  var a  = ang + sway;
+  var ex = x + Math.cos(a) * len;
+  var ey = y + Math.sin(a) * len;
+
+  /* store segment for batched draw */
+  if (!segBatches[dep]) segBatches[dep] = [];
+  segBatches[dep].push(x, y, ex, ey);
+
+  /* collect leaf at tip */
+  if (dep === P.maxDepth) {
+    leafList.push(ex, ey);
+  }
+
+  /* recurse */
+  var nl = len * P.lenDecay;
+  var n  = P.branches;
+  for (var i = 0; i < n; i++) {
+    var ba;
+    if (n === 2) {
+      ba = a + (i ? -P.angle : P.angle) + P.asym;
+    } else {
+      ba = a + (i - 1) * P.angle + P.asym;
+    }
+    ba += nz(dep * 7 + i * 3) * P.wiggle;
+    branch(ex, ey, nl, ba, dep + 1, t);
+  }
+}
+
+/* ---- render one frame ---- */
+function render(t) {
+  /* clear batches & leaves */
+  segBatches = [];
+  leafList.length = 0;
+
+  /* background */
+  ctx.fillStyle = '#05060d';
+  ctx.fillRect(0, 0, W, H);
+
+  /* subtle ground glow */
+  var rx = W / 2, ry = H * 0.92;
+  var gg = ctx.createRadialGradient(rx, ry, 0, rx, ry, H * 0.6);
+  gg.addColorStop(0,   'rgba(124,92,255,0.07)');
+  gg.addColorStop(0.35,'rgba(255,46,154,0.025)');
+  gg.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = gg;
+  ctx.fillRect(0, 0, W, H);
+
+  /* build tree data */
+  branch(rx, ry, P.initLen, -Math.PI / 2, 0, t);
+
+  /* draw branches batched by depth */
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (var dep = 0; dep <= P.maxDepth; dep++) {
+    var segs = segBatches[dep];
+    if (!segs || segs.length === 0) continue;
+    ctx.strokeStyle = bcol(dep);
+    ctx.lineWidth = Math.max(0.4, P.initWid * Math.pow(P.widDecay, dep));
+    ctx.beginPath();
+    for (var i = 0; i < segs.length; i += 4) {
+      ctx.moveTo(segs[i], segs[i + 1]);
+      ctx.lineTo(segs[i + 2], segs[i + 3]);
+    }
+    ctx.stroke();
+  }
+
+  /* draw leaves with additive blending for glow */
+  var pulse = reducedMotion ? 1 : (0.65 + 0.35 * Math.sin(t * 0.002));
+  var gr = P.leafGlowR * 2 * pulse;
+  var half = gr / 2;
+
+  ctx.globalCompositeOperation = 'lighter';
+  for (var j = 0; j < leafList.length; j += 2) {
+    /* tint sprite by drawing scaled */
+    ctx.drawImage(leafSprite, leafList[j] - half, leafList[j + 1] - half, gr, gr);
+  }
+  /* bright core dots */
+  for (var j2 = 0; j2 < leafList.length; j2 += 2) {
+    ctx.fillStyle = 'rgba(220,255,250,' + (0.9 * pulse).toFixed(3) + ')';
+    ctx.beginPath();
+    ctx.arc(leafList[j2], leafList[j2 + 1], P.leafSize, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+/* ---- animation loop ---- */
+var t0 = performance.now();
+function loop(now) {
+  render(now - t0);
+  requestAnimationFrame(loop);
+}
+
+/* ---- events ---- */
+window.addEventListener('resize', resize);
+
+canvas.addEventListener('mousemove', function(e) {
+  mouse.x = e.clientX / window.innerWidth;
+});
+
+canvas.addEventListener('click', function() {
+  genParams();
+  if (reducedMotion) render(0);
+});
+
+canvas.addEventListener('touchmove', function(e) {
+  if (e.touches[0]) { mouse.x = e.touches[0].clientX / window.innerWidth; }
+  e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('touchstart', function(e) {
+  if (e.touches.length > 1) return;
+  genParams();
+  if (reducedMotion) render(0);
+});
+
+/* ---- init ---- */
+genParams();
+makeLeafSprite();
+resize();
+if (reducedMotion) { render(0); } else { requestAnimationFrame(loop); }
+
+})();
+</script>
+</body>
+</html>

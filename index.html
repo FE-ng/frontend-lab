@@ -134,8 +134,80 @@
         <p>9000 点对数螺旋 + 高斯散布,ShaderMaterial 点精灵,AdditiveBlending 星云。</p>
         <div class="tags"><span>Three.js</span><span>shader points</span><span>galaxy</span><span>additive</span></div>
       </a>
+      <a class="demo" href="16-lsystem-tree/">
+        <div class="n">16</div>
+        <h2>L-system 分形树</h2>
+        <p>递归 L-system 生成树,深度渐变上色,风摆+鼠标风向,点击重新随机生长。</p>
+        <div class="tags"><span>Canvas 2D</span><span>L-system</span><span>fractal</span><span>wind</span></div>
+      </a>
+      <a class="demo" href="17-boids/">
+        <div class="n">17</div>
+        <h2>Boids 群飞</h2>
+        <p>经典 boids 三规则(分离/对齐/聚合)+ 鼠标吸引,~180 只箭头边缘环绕。</p>
+        <div class="tags"><span>Canvas 2D</span><span>boids</span><span>steering</span><span>flock</span></div>
+      </a>
+      <a class="demo" href="18-magnetic-cursor/">
+        <div class="n">18</div>
+        <h2>Magnetic Cursor 磁性光标</h2>
+        <p>自画光标 + 拖尾粒子,hover 可交互元素被磁吸放大,点击涟漪。</p>
+        <div class="tags"><span>cursor</span><span>lerp trail</span><span>magnetic</span><span>ripple</span></div>
+      </a>
+      <a class="demo" href="19-image-glitch/">
+        <div class="n">19</div>
+        <h2>Image Glitch / Datamosh</h2>
+        <p>程序化图 + RGB 通道偏移 + 行扫描错位 + 块位移,鼠标控强度、点击撕裂。</p>
+        <div class="tags"><span>Canvas 2D</span><span>RGB split</span><span>datamosh</span><span>pixel</span></div>
+      </a>
+      <a class="demo" href="20-hyperspace/">
+        <div class="n">20</div>
+        <h2>Hyperspace 超光速星场</h2>
+        <p>3D 星点透视投影,近大远小,高速时全屏径向拉线模拟 warp。</p>
+        <div class="tags"><span>Canvas 2D</span><span>3D projection</span><span>warp streaks</span></div>
+      </a>
+      <a class="demo" href="22-reaction-diffusion/">
+        <div class="n">22</div>
+        <h2>Reaction-Diffusion</h2>
+        <p>Gray-Scott 反应扩散,9 点拉普拉斯,预设珊瑚/迷宫/条纹,鼠标涂抹播种。</p>
+        <div class="tags"><span>Canvas 2D</span><span>Gray-Scott</span><span>laplacian</span><span>emergent</span></div>
+      </a>
     </div>
     <footer>frontend-lab · 单文件炫技集 · 部署于 GitHub Pages + Vercel · <a href="https://github.com/FE-ng/frontend-lab">FE-ng</a></footer>
   </div>
+  <script>
+    // 滚动保活:从 demo 回到画廊时恢复上次滚动位置(点"← lab 首页"是全新加载,浏览器不恢复)
+    (function () {
+      var K = "lab_scroll_y";
+      try {
+        var s = sessionStorage.getItem(K);
+        if (s) { var y = parseInt(s, 10) || 0; var go = function () { window.scrollTo(0, y); }; go(); requestAnimationFrame(go); }
+        var t;
+        window.addEventListener("scroll", function () { clearTimeout(t); t = setTimeout(function () { try { sessionStorage.setItem(K, String(window.scrollY)); } catch (e) {} }, 150); }, { passive: true });
+        window.addEventListener("pagehide", function () { try { sessionStorage.setItem(K, String(window.scrollY)); } catch (e) {} });
+      } catch (e) {}
+    })();
+  </script>
+  <script>
+    // 空闲预加载:进画廊后用 idle 把重资源(demo10 的 GLB/组件 + three)拉进 HTTP 缓存,点进去秒开
+    (function () {
+      var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (conn && conn.saveData) return; // 省流模式不预取
+      var assets = [
+        'https://cdn.jsdelivr.net/npm/@google/model-viewer@3/dist/model-viewer.min.js',
+        'https://modelviewer.dev/shared-assets/models/Astronaut.glb',
+        'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js'
+      ];
+      var run = function () {
+        assets.forEach(function (u) {
+          var l = document.createElement('link');
+          l.rel = 'prefetch'; l.href = u;
+          if (/\.glb$/.test(u)) { l.crossOrigin = 'anonymous'; l.as = 'fetch'; }
+          else { l.as = 'script'; }
+          document.head.appendChild(l);
+        });
+      };
+      if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 3000 });
+      else setTimeout(run, 1500);
+    })();
+  </script>
 </body>
 </html>

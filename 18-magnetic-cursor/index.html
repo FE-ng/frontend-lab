@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>18 · Magnetic Cursor</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #05060d;
+    --fg: #e8e9f3;
+    --muted: #8a8ca3;
+    --acc-1: #7B61FF;   /* violet */
+    --acc-2: #00E5FF;   /* cyan   */
+    --acc-3: #FF61DC;   /* magenta */
+    --card: rgba(255, 255, 255, 0.04);
+    --border: rgba(255, 255, 255, 0.09);
+  }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== Aurora background ===== */
+  .aurora { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+  .aurora::before, .aurora::after, .aurora .blob3 {
+    content: ""; position: absolute; border-radius: 50%;
+    filter: blur(90px); mix-blend-mode: screen;
+  }
+  .aurora::before {
+    width: 62vmax; height: 62vmax;
+    top: -22vmax; left: -14vmax;
+    background: radial-gradient(circle, var(--acc-1), transparent 70%);
+    opacity: 0.45;
+    animation: drift1 22s ease-in-out infinite alternate;
+  }
+  .aurora::after {
+    width: 60vmax; height: 60vmax;
+    bottom: -22vmax; right: -14vmax;
+    background: radial-gradient(circle, var(--acc-2), transparent 70%);
+    opacity: 0.38;
+    animation: drift2 27s ease-in-out infinite alternate;
+  }
+  .aurora .blob3 {
+    width: 42vmax; height: 42vmax;
+    top: 28%; left: 38%;
+    background: radial-gradient(circle, var(--acc-3), transparent 70%);
+    opacity: 0.25;
+    animation: drift3 31s ease-in-out infinite alternate;
+  }
+  @keyframes drift1 { to { transform: translate(28vmax, 18vmax) scale(1.15); } }
+  @keyframes drift2 { to { transform: translate(-28vmax, -18vmax) scale(0.85); } }
+  @keyframes drift3 { to { transform: translate(-14vmax, 20vmax) scale(1.2); } }
+
+  /* ===== Scene ===== */
+  .scene {
+    position: relative; z-index: 2; height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 80px 24px; gap: 36px;
+  }
+  .title-wrap { text-align: center; }
+  .title {
+    font-size: clamp(30px, 5vw, 58px); font-weight: 700; letter-spacing: 0.02em;
+    background: linear-gradient(90deg, var(--acc-2), var(--acc-1) 55%, var(--acc-3));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .subtitle { color: var(--muted); font-size: 13px; margin-top: 10px; letter-spacing: 0.02em; }
+
+  .btn-row { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+  .btn {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 13px 26px; color: var(--fg); font-size: 15px; font-weight: 500;
+    cursor: pointer; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    transition: background .25s, border-color .25s, color .25s;
+    will-change: transform;
+  }
+  .btn:hover { background: rgba(123, 97, 255, 0.18); border-color: rgba(123, 97, 255, 0.55); }
+
+  .cards {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 210px)); gap: 18px;
+    max-width: 760px;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 18px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    will-change: transform;
+  }
+  .card h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .card p { font-size: 12px; color: var(--muted); line-height: 1.55; }
+
+  /* ===== Magnetic cursor ===== */
+  .cursor-layer { position: fixed; inset: 0; z-index: 9999; pointer-events: none; }
+  .cursor-dot {
+    position: fixed; top: 0; left: 0; width: 10px; height: 10px; border-radius: 50%;
+    background: var(--acc-2); box-shadow: 0 0 12px rgba(0, 229, 255, 0.7);
+    transform: translate(-50%, -50%); pointer-events: none; z-index: 10001; will-change: transform;
+    transition: background .25s, box-shadow .25s;
+  }
+  .trail-ring {
+    position: fixed; top: 0; left: 0; width: 40px; height: 40px; border-radius: 50%;
+    border: 1.5px solid rgba(0, 229, 255, 0.6);
+    transform: translate(-50%, -50%); pointer-events: none; z-index: 10000; will-change: transform;
+    transition: border-color .25s, width .2s, height .2s;
+  }
+  .trail-particle {
+    position: fixed; top: 0; left: 0; border-radius: 50%;
+    transform: translate(-50%, -50%); pointer-events: none; z-index: 9998; will-change: transform;
+  }
+  .ripple {
+    position: fixed; width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid rgba(0, 229, 255, 0.85);
+    transform: translate(-50%, -50%); pointer-events: none; z-index: 9997;
+    animation: ripple .7s ease-out forwards;
+  }
+  @keyframes ripple {
+    0%   { opacity: 1; width: 10px;  height: 10px;  border-width: 2px; }
+    100% { opacity: 0; width: 150px; height: 150px; border-width: 1px; }
+  }
+
+  /* Magnet-active tint: dot/ring switch to magenta */
+  body.magnet-active .cursor-dot {
+    background: var(--acc-3); box-shadow: 0 0 16px rgba(255, 97, 220, 0.85);
+  }
+  body.magnet-active .trail-ring {
+    border-color: rgba(255, 97, 220, 0.7);
+    width: 56px; height: 56px;
+  }
+
+  /* ===== Overlay ===== */
+  .overlay-tl {
+    position: fixed; top: 18px; left: 22px; z-index: 50;
+    font-size: 13px; letter-spacing: 0.05em; color: var(--muted);
+  }
+  .overlay-tl b { color: var(--fg); font-weight: 600; }
+  .overlay-tr { position: fixed; top: 18px; right: 22px; z-index: 50; }
+  .overlay-tr a {
+    color: var(--muted); text-decoration: none; font-size: 13px; transition: color .2s;
+  }
+  .overlay-tr a:hover { color: var(--acc-2); }
+
+  /* Hide native cursor when custom cursor is active */
+  body.cursor-on, body.cursor-on a, body.cursor-on button { cursor: none; }
+
+  /* ===== Reduced motion: drop effects, restore system cursor ===== */
+  @media (prefers-reduced-motion: reduce) {
+    .aurora::before, .aurora::after, .aurora .blob3 { animation: none; }
+    .cursor-dot, .trail-ring, .trail-particle, .ripple { display: none !important; }
+    .btn, .card { transition: none !important; will-change: auto; }
+    body.cursor-on, body.cursor-on a, body.cursor-on button { cursor: auto; }
+  }
+
+  /* No precise pointer (touch): no custom cursor */
+  @media (hover: none) {
+    .cursor-dot, .trail-ring, .trail-particle { display: none; }
+    body.cursor-on, body.cursor-on a, body.cursor-on button { cursor: auto; }
+  }
+</style>
+</head>
+<body>
+  <div class="aurora"><div class="blob3"></div></div>
+
+  <div class="overlay-tl"><b>18</b> · Magnetic Cursor</div>
+  <div class="overlay-tr"><a href="../">← lab 首页</a></div>
+
+  <main class="scene">
+    <div class="title-wrap">
+      <h1 class="title">Magnetic Cursor</h1>
+      <p class="subtitle">靠近即吸附 · 点击生涟漪 · prefers-reduced-motion 自动降级</p>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn magnet">Hover Me</button>
+      <button class="btn magnet">Click Me</button>
+      <button class="btn magnet">拖尾环</button>
+    </div>
+
+    <div class="cards">
+      <div class="card magnet"><h3>Inertia</h3><p>rAF + lerp,主圆点紧贴指针,环与粒子随惯性延后。</p></div>
+      <div class="card magnet"><h3>Magnetism</h3><p>元素靠近指针即被吸附并轻微放大,离开后弹性回弹。</p></div>
+      <div class="card magnet"><h3>Ripple</h3><p>点任意位置生成扩散涟漪,0.7s 后消散,不抢交互。</p></div>
+    </div>
+  </main>
+
+  <div class="cursor-layer">
+    <div class="trail-ring" id="ring"></div>
+    <div class="cursor-dot" id="dot"></div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  var prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var canHover = window.matchMedia('(hover: hover)').matches;
+
+  // DPR cap at 2 (recorded; rendering uses CSS px which stay crisp on retina)
+  var dpr = Math.min(window.devicePixelRatio || 1, 2); // eslint-disable-line no-unused-vars
+
+  var dot = document.getElementById('dot');
+  var ring = document.getElementById('ring');
+  var layer = document.querySelector('.cursor-layer');
+
+  // Reduced-motion / touch fallback: restore system cursor, no effects.
+  if (prefersReduced || !canHover) {
+    document.body.classList.remove('cursor-on');
+    dot.style.display = 'none';
+    ring.style.display = 'none';
+    return;
+  }
+
+  document.body.classList.add('cursor-on');
+
+  // ===== Build trail particle ring =====
+  var TRAIL_COUNT = 9;
+  var particles = [];
+  for (var i = 0; i < TRAIL_COUNT; i++) {
+    var p = document.createElement('div');
+    p.className = 'trail-particle';
+    var t = i / (TRAIL_COUNT - 1);
+    p.style.opacity = (0.85 - t * 0.72).toFixed(2);
+    var sz = (5.5 - t * 4).toFixed(1) + 'px';
+    p.style.width = sz;
+    p.style.height = sz;
+    p.style.background = (i % 2 === 0) ? 'rgba(123,97,255,0.9)' : 'rgba(255,97,220,0.85)';
+    layer.appendChild(p);
+    particles.push({ el: p, x: 0, y: 0 });
+  }
+
+  // ===== Movement state =====
+  var mouseX = window.innerWidth / 2;
+  var mouseY = window.innerHeight / 2;
+  var dotX = mouseX, dotY = mouseY;
+  var ringX = mouseX, ringY = mouseY;
+
+  var HISTORY_LEN = 20;
+  var history = [];
+
+  window.addEventListener('pointermove', function (e) {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  }, { passive: true });
+
+  // ===== Click ripple =====
+  document.addEventListener('pointerdown', function (e) {
+    if (prefersReduced) return;
+    var r = document.createElement('div');
+    r.className = 'ripple';
+    r.style.left = e.clientX + 'px';
+    r.style.top = e.clientY + 'px';
+    document.body.appendChild(r);
+    r.addEventListener('animationend', function () { r.remove(); });
+  });
+
+  // ===== Magnetic elements =====
+  var MAG_RADIUS = 130;
+  var PULL = 0.35;        // how strongly element chases pointer
+  var RETURN_LERP = 0.18; // lerp factor for both return & pull
+
+  var magnets = Array.prototype.map.call(
+    document.querySelectorAll('.magnet'),
+    function (el) {
+      return { el: el, ox: 0, oy: 0, tx: 0, ty: 0, scale: 1, ts: 1, hot: false };
+    }
+  );
+
+  var anyHot = false;
+
+  function updateMagnets() {
+    var hotNow = false;
+    for (var i = 0; i < magnets.length; i++) {
+      var m = magnets[i];
+      var r = m.el.getBoundingClientRect();
+      var cx = r.left + r.width / 2;
+      var cy = r.top + r.height / 2;
+      var dx = mouseX - cx;
+      var dy = mouseY - cy;
+      var dist = Math.hypot(dx, dy);
+      var reach = MAG_RADIUS + Math.max(r.width, r.height) / 2;
+
+      if (dist < reach) {
+        var strength = 1 - dist / reach;          // 0..1
+        m.tx = dx * PULL * strength;
+        m.ty = dy * PULL * strength;
+        m.ts = 1 + strength * 0.12;                // up to +12%
+        m.hot = true;
+        hotNow = true;
+      } else {
+        m.tx = 0; m.ty = 0; m.ts = 1; m.hot = false;
+      }
+
+      m.ox += (m.tx - m.ox) * RETURN_LERP;
+      m.oy += (m.ty - m.oy) * RETURN_LERP;
+      m.scale += (m.ts - m.scale) * RETURN_LERP;
+      m.el.style.transform =
+        'translate(' + m.ox.toFixed(2) + 'px,' + m.oy.toFixed(2) + 'px) scale(' + m.scale.toFixed(3) + ')';
+    }
+
+    if (hotNow !== anyHot) {
+      anyHot = hotNow;
+      if (hotNow) document.body.classList.add('magnet-active');
+      else document.body.classList.remove('magnet-active');
+    }
+  }
+
+  // ===== rAF loop =====
+  function loop() {
+    // Dot nearly tracks pointer
+    dotX += (mouseX - dotX) * 0.55;
+    dotY += (mouseY - dotY) * 0.55;
+    dot.style.transform = 'translate(' + dotX + 'px,' + dotY + 'px)';
+
+    // Ring lags behind (lower lerp = more trail)
+    ringX += (mouseX - ringX) * 0.20;
+    ringY += (mouseY - ringY) * 0.20;
+    ring.style.transform = 'translate(' + ringX + 'px,' + ringY + 'px)';
+
+    // Push current dot pos into history
+    history.unshift({ x: dotX, y: dotY });
+    if (history.length > HISTORY_LEN) history.pop();
+
+    // Distribute particles along the history tail
+    for (var i = 0; i < particles.length; i++) {
+      var step = (i + 1) / particles.length * (HISTORY_LEN - 1) + 1;
+      var idx = Math.floor(step);
+      if (idx >= history.length) idx = history.length - 1;
+      var h = history[idx] || { x: dotX, y: dotY };
+      var pp = particles[i];
+      pp.x += (h.x - pp.x) * 0.4;
+      pp.y += (h.y - pp.y) * 0.4;
+      pp.el.style.transform = 'translate(' + pp.x + 'px,' + pp.y + 'px)';
+    }
+
+    updateMagnets();
+    requestAnimationFrame(loop);
+  }
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

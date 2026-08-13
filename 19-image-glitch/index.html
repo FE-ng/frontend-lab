@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>19 · Image Glitch / Datamosh</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    overflow:hidden;background:#05060d;
+    font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;color:#fff;
+    cursor:crosshair;
+  }
+  canvas{display:block;position:fixed;inset:0}
+  /* static scanline + vignette overlay (aesthetic, no JS motion) */
+  .scanlines{
+    position:fixed;inset:0;pointer-events:none;z-index:5;
+    background:repeating-linear-gradient(to bottom,
+      rgba(0,0,0,0) 0 1px, rgba(0,0,0,.16) 1px 2px);
+    mix-blend-mode:multiply;opacity:.85;
+  }
+  .vignette{
+    position:fixed;inset:0;pointer-events:none;z-index:6;
+    background:radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%);
+  }
+  .overlay{position:fixed;top:32px;left:36px;z-index:10;pointer-events:none}
+  .overlay h1{
+    font-size:28px;font-weight:700;letter-spacing:-.02em;
+    background:linear-gradient(90deg,#7c5cff,#18d6c9,#ff2e9a);
+    -webkit-background-clip:text;background-clip:text;
+    -webkit-text-fill-color:transparent;color:transparent;
+  }
+  .overlay p{margin-top:6px;font-size:12px;color:rgba(255,255,255,.45);letter-spacing:.04em}
+  .home-link{position:fixed;top:36px;right:36px;z-index:10;color:rgba(255,255,255,.6);text-decoration:none;font-size:14px;transition:color .2s}
+  .home-link:hover{color:#fff}
+  .hud{position:fixed;bottom:28px;left:36px;z-index:10;pointer-events:none;font-size:11px;color:rgba(255,255,255,.4);letter-spacing:.05em;font-family:ui-monospace,Menlo,Consolas,monospace}
+  .hud b{color:#18d6c9;font-weight:600}
+  @media (prefers-reduced-motion:reduce){
+    .scanlines{display:none}
+  }
+</style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+  <div class="overlay">
+    <h1>19 · Image Glitch / Datamosh</h1>
+    <p>move X = intensity &nbsp;·&nbsp; click = tear</p>
+  </div>
+  <a class="home-link" href="../">&#8592; lab &#39318;&#39029;</a>
+  <div class="hud">intensity <b id="hud-i">0.00</b> &nbsp; burst <b id="hud-b">0.00</b></div>
+
+<script>
+"use strict";
+/* ============================================================
+   19 · Image Glitch / Datamosh
+   - 程序化源图(渐变+几何+文字"GLM"),不依赖外网
+   - RGB 通道偏移 / 行扫描错位 / 随机块位移(datamosh) / scanline
+   - 鼠标 X 控制强度, 点击触发撕裂+噪点
+   - prefers-reduced-motion: 静态原图, 无 glitch
+   ============================================================ */
+
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d", { alpha: false });
+
+let W = 0, H = 0;            // CSS px
+let cw = 0, ch = 0;          // device px (canvas backing)
+let srcCanvas = null;        // 程序化源图 (device px)
+let chanR = null, chanG = null, chanB = null; // 分离后的 R/G/B 通道画布
+let snap = null;             // 工作快照 (用于位移读取)
+let snapCtx = null;
+
+const hudI = document.getElementById("hud-i");
+const hudB = document.getElementById("hud-b");
+
+/* ---------- 状态 ---------- */
+let intensity = 0;        // 0..1 由鼠标 X 控制
+let burst = 0;            // 0..1 点击后衰减
+let frame = 0;
+
+/* ---------- 工具 ---------- */
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+// 整数化 hash, 用于行带随机位移的确定性抖动
+function hash(n) {
+  n = (n ^ 61) ^ (n >>> 16);
+  n = n + (n << 3);
+  n = n ^ (n >>> 4);
+  n = Math.imul(n, 0x27d4eb2d);
+  n = n ^ (n >>> 15);
+  return (n >>> 0) / 4294967296;
+}
+
+/* ---------- 程序化源图 ---------- */
+function buildSource() {
+  const s = document.createElement("canvas");
+  s.width = cw; s.height = ch;
+  const x = s.getContext("2d");
+
+  // 1) 深色径向渐变底
+  const bg = x.createRadialGradient(cw * 0.5, ch * 0.45, 0, cw * 0.5, ch * 0.5, Math.max(cw, ch) * 0.75);
+  bg.addColorStop(0, "#0c1024");
+  bg.addColorStop(0.55, "#070914");
+  bg.addColorStop(1, "#05060d");
+  x.fillStyle = bg;
+  x.fillRect(0, 0, cw, ch);
+
+  // 2) 品牌色光晕 (大半透明圆, 高斯感)
+  const glows = [
+    { c: "rgba(124,92,255,0.22)", x: 0.28, y: 0.30, r: 0.42 },
+    { c: "rgba(24,214,201,0.20)", x: 0.74, y: 0.34, r: 0.38 },
+    { c: "rgba(255,46,154,0.18)", x: 0.50, y: 0.78, r: 0.46 },
+  ];
+  for (const g of glows) {
+    const rg = x.createRadialGradient(cw * g.x, ch * g.y, 0, cw * g.x, ch * g.y, Math.max(cw, ch) * g.r);
+    rg.addColorStop(0, g.c);
+    rg.addColorStop(1, "rgba(0,0,0,0)");
+    x.fillStyle = rg;
+    x.fillRect(0, 0, cw, ch);
+  }
+
+  // 3) 透视网格 (地平线感), 增强边缘以利 glitch 撕裂
+  x.save();
+  x.strokeStyle = "rgba(124,92,255,0.28)";
+  x.lineWidth = 1 * DPR;
+  const horizon = ch * 0.62;
+  // 横向退缩线
+  for (let i = 1; i <= 10; i++) {
+    const t = i / 10;
+    const y = horizon + (ch - horizon) * Math.pow(t, 1.8);
+    x.globalAlpha = 0.1 + t * 0.35;
+    x.beginPath(); x.moveTo(0, y); x.lineTo(cw, y); x.stroke();
+  }
+  // 纵向汇聚线
+  x.globalAlpha = 0.3;
+  const vp = { x: cw * 0.5, y: horizon };
+  for (let i = -8; i <= 8; i++) {
+    if (i === 0) continue;
+    x.beginPath();
+    x.moveTo(vp.x + i * cw * 0.06, vp.y);
+    x.lineTo(vp.x + i * cw * 0.9, ch);
+    x.stroke();
+  }
+  x.restore();
+
+  // 4) 几何: 同心圆环 + 三角
+  x.save();
+  x.translate(cw * 0.2, ch * 0.22);
+  x.strokeStyle = "rgba(24,214,201,0.5)";
+  x.lineWidth = 1.5 * DPR;
+  for (let r = 18; r < 120 * DPR; r += 14 * DPR) {
+    x.globalAlpha = 0.18 + (120 * DPR - r) / (120 * DPR) * 0.4;
+    x.beginPath(); x.arc(0, 0, r, 0, Math.PI * 2); x.stroke();
+  }
+  x.restore();
+
+  x.save();
+  x.translate(cw * 0.82, ch * 0.74);
+  x.rotate(-0.4);
+  x.strokeStyle = "rgba(255,46,154,0.55)";
+  x.lineWidth = 1.5 * DPR;
+  const tri = 70 * DPR;
+  x.beginPath();
+  x.moveTo(0, -tri); x.lineTo(tri * 0.866, tri * 0.5); x.lineTo(-tri * 0.866, tri * 0.5); x.closePath();
+  x.stroke();
+  x.restore();
+
+  // 5) 中央大字 "GLM" 渐变填充 — 视觉锚点, 撕裂主体
+  x.save();
+  x.translate(cw * 0.5, ch * 0.46);
+  const fs = Math.min(cw, ch) * 0.34;
+  x.font = "800 " + fs + "px -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif";
+  x.textAlign = "center";
+  x.textBaseline = "middle";
+  const tg = x.createLinearGradient(-fs, -fs * 0.5, fs, fs * 0.5);
+  tg.addColorStop(0, "#7c5cff");
+  tg.addColorStop(0.5, "#18d6c9");
+  tg.addColorStop(1, "#ff2e9a");
+  x.fillStyle = tg;
+  x.fillText("GLM", 0, 0);
+  // 描边
+  x.lineWidth = 1.2 * DPR;
+  x.strokeStyle = "rgba(255,255,255,0.08)";
+  x.strokeText("GLM", 0, 0);
+  x.restore();
+
+  // 6) 角落小字标签, 增加 glitch 可见碎块
+  x.save();
+  x.fillStyle = "rgba(255,255,255,0.35)";
+  x.font = "600 " + (11 * DPR) + "px ui-monospace, Menlo, Consolas, monospace";
+  x.textBaseline = "top";
+  x.fillText("SIGNAL // CH-19", 20 * DPR, 20 * DPR);
+  x.textAlign = "right";
+  x.fillText("DATAMOSH LIVE", cw - 20 * DPR, 20 * DPR);
+  x.textBaseline = "bottom";
+  x.textAlign = "left";
+  x.fillStyle = "rgba(24,214,201,0.5)";
+  x.fillText("0x7C5CFF · 0x18D6C9 · 0xFF2E9A", 20 * DPR, ch - 20 * DPR);
+  x.restore();
+
+  return s;
+}
+
+/* ---------- 通道隔离: multiply 法 (GPU 加速, 源重建时做一次) ---------- */
+function isolateChannel(src, hex) {
+  const c = document.createElement("canvas");
+  c.width = src.width; c.height = src.height;
+  const x = c.getContext("2d");
+  x.drawImage(src, 0, 0);
+  // multiply 纯色 → 只保留该通道 (其余通道×0)
+  x.globalCompositeOperation = "multiply";
+  x.fillStyle = hex;
+  x.fillRect(0, 0, c.width, c.height);
+  return c;
+}
+
+/* ---------- 尺寸 / 重建 ---------- */
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  cw = Math.floor(W * DPR);
+  ch = Math.floor(H * DPR);
+  canvas.width = cw;
+  canvas.height = ch;
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+
+  srcCanvas = buildSource();
+  chanR = isolateChannel(srcCanvas, "#ff0000");
+  chanG = isolateChannel(srcCanvas, "#00ff00");
+  chanB = isolateChannel(srcCanvas, "#0000ff");
+
+  snap = document.createElement("canvas");
+  snap.width = cw; snap.height = ch;
+  snapCtx = snap.getContext("2d");
+
+  if (reducedMotion) renderStatic();
+}
+
+function renderStatic() {
+  // 静态原图: 不做通道偏移与位移
+  ctx.drawImage(srcCanvas, 0, 0);
+}
+
+/* ---------- 一帧 glitch 合成 ---------- */
+function renderFrame() {
+  const G = clamp(intensity + burst, 0, 1.4);
+  const k = DPR;
+
+  // 1) RGB 通道偏移 (加法合成)
+  //    dxR < 0, dxB > 0 → 边缘紫/青色撕裂; G=0 时 R+G+B 完全还原源图
+  const maxShift = 10 * k;
+  const dxR = -G * maxShift;
+  const dxB = +G * maxShift;
+
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "#05060d";
+  ctx.fillRect(0, 0, cw, ch);
+  ctx.globalCompositeOperation = "lighter"; // additive
+  ctx.drawImage(chanR, dxR, 0);
+  ctx.drawImage(chanG, 0, 0);
+  ctx.drawImage(chanB, dxB, 0);
+  ctx.globalCompositeOperation = "source-over";
+
+  // 2) 快照, 作为后续位移的读取源 (避免 canvas 自绘顺序问题)
+  snapCtx.clearRect(0, 0, cw, ch);
+  snapCtx.drawImage(canvas, 0, 0);
+
+  // 3) 行扫描错位 (行带水平平移) — 仅在有效强度时
+  if (G > 0.04) {
+    const bandH = Math.max(2 * k, Math.round(3 * k + G * 6 * k));
+    const shiftMax = G * 26 * k + (burst > 0.1 ? burst * 50 * k : 0);
+    // 用 source-over 覆盖式重绘带, 从 snap 取
+    for (let y = 0; y < ch; y += bandH) {
+      const h = Math.min(bandH, ch - y);
+      // 每 3 帧换一次抖动种子, 减少高频闪烁但保持撕裂感
+      const seed = Math.floor(y / bandH) * 31 + Math.floor(frame / 3) * 7;
+      let sh = (hash(seed) - 0.5) * 2 * shiftMax;
+      // 部分行大幅度错位 (tracking 失效)
+      if (hash(seed + 13) > 0.86) sh *= 3.2;
+      sh = Math.round(sh);
+      if (sh === 0) continue;
+      // 把 snap 的 [0,y,cw,h] 平移 sh 画回 main (覆盖)
+      ctx.drawImage(snap, 0, y, cw, h, sh, y, cw, h);
+    }
+  }
+
+  // 4) 随机块位移 (datamosh): 从 snap 复制矩形到偏移位置
+  if (G > 0.15) {
+    const blocks = Math.round(2 + G * 10);
+    const maxBlk = 90 * k;
+    for (let i = 0; i < blocks; i++) {
+      const bw = (20 + hash(frame * 101 + i) * maxBlk) | 0;
+      const bh = (6 + hash(frame * 53 + i * 7) * 40 * k) | 0;
+      const sx = (hash(frame * 71 + i * 3) * (cw - bw)) | 0;
+      const sy = (hash(frame * 37 + i * 5) * (ch - bh)) | 0;
+      const dx = sx + Math.round((hash(frame * 23 + i) - 0.5) * 2 * 40 * k * (0.5 + G));
+      const dy = sy + Math.round((hash(frame * 19 + i) - 0.5) * 2 * 20 * k * (0.5 + G));
+      ctx.drawImage(snap, sx, sy, bw, bh, dx, dy, bw, bh);
+    }
+  }
+
+  // 5) 点击撕裂: 一道大水平剪切 + 块噪点
+  if (burst > 0.05) {
+    const sliceY = (hash(frame) * ch) | 0;
+    const sliceH = (10 * k + burst * 60 * k) | 0;
+    const shear = Math.round((hash(frame + 99) - 0.5) * 2 * 80 * k * burst);
+    if (sliceY + sliceH < ch) {
+      ctx.drawImage(snap, 0, sliceY, cw, sliceH, shear, sliceY, cw, sliceH);
+    }
+    // 块状噪点 (ImageData 随机), 仅在 burst 较强时
+    if (burst > 0.25) {
+      const nbw = (60 + burst * 80) * k | 0;
+      const nbh = (40 + burst * 60) * k | 0;
+      const nx = (hash(frame * 5) * (cw - nbw)) | 0;
+      const ny = (hash(frame * 9) * (ch - nbh)) | 0;
+      const noise = ctx.createImageData(nbw, nbh);
+      const d = noise.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const v = (Math.random() * 255) | 0;
+        // 偏向品牌色通道, 形成"色彩撕裂"噪点
+        d[i]     = v & (hash(i) > 0.5 ? 0xff : 0x7c); // R
+        d[i + 1] = v & (hash(i + 1) > 0.5 ? 0xff : 0x18); // G
+        d[i + 2] = v & (hash(i + 2) > 0.5 ? 0xff : 0x9a); // B
+        d[i + 3] = (burst * 180) | 0;
+      }
+      ctx.putImageData(noise, nx, ny);
+    }
+  }
+
+  // 6) 整体色调微提亮边缘色 (glitch 时色彩更冲)
+  if (G > 0.1) {
+    ctx.globalCompositeOperation = "overlay";
+    ctx.fillStyle = "rgba(124,92,255," + (G * 0.05).toFixed(3) + ")";
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.globalCompositeOperation = "source-over";
+  }
+}
+
+/* ---------- 主循环 ---------- */
+function loop() {
+  frame++;
+  if (!reducedMotion) {
+    // burst 衰减
+    burst *= 0.90;
+    if (burst < 0.005) burst = 0;
+    renderFrame();
+    hudI.textContent = intensity.toFixed(2);
+    hudB.textContent = burst.toFixed(2);
+  }
+  requestAnimationFrame(loop);
+}
+
+/* ---------- 交互 ---------- */
+window.addEventListener("mousemove", function (e) {
+  if (reducedMotion) return;
+  intensity = clamp(e.clientX / window.innerWidth, 0, 1);
+}, { passive: true });
+
+window.addEventListener("touchmove", function (e) {
+  if (reducedMotion || !e.touches[0]) return;
+  intensity = clamp(e.touches[0].clientX / window.innerWidth, 0, 1);
+}, { passive: true });
+
+function triggerBurst() {
+  if (reducedMotion) return;
+  burst = 1.0;
+}
+window.addEventListener("mousedown", triggerBurst);
+window.addEventListener("touchstart", triggerBurst, { passive: true });
+
+window.addEventListener("resize", resize);
+
+/* ---------- 启动 ---------- */
+resize();
+if (!reducedMotion) requestAnimationFrame(loop);
+</script>
+</body>
+</html>

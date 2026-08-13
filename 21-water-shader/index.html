@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>21 · Water / Caustics Shader</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #050810; touch-action: none; }
+  canvas { display: block; width: 100%; height: 100%; }
+  .overlay-label {
+    position: fixed; top: 16px; left: 20px;
+    color: rgba(190, 190, 255, 0.65);
+    font: 13px/1.4 ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
+    pointer-events: none; user-select: none;
+    letter-spacing: 0.06em;
+  }
+  .home-link {
+    position: fixed; top: 16px; right: 20px;
+    color: rgba(190, 190, 255, 0.65);
+    font: 13px/1.4 ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
+    text-decoration: none; letter-spacing: 0.06em;
+    z-index: 10;
+  }
+  .home-link:hover { color: rgba(220, 210, 255, 0.95); }
+  .error-overlay {
+    position: fixed; bottom: 20px; left: 20px; right: 20px;
+    background: rgba(180, 0, 0, 0.15); border: 1px solid rgba(255, 80, 80, 0.5);
+    color: #ff9090; padding: 14px 18px; border-radius: 6px;
+    font: 12px/1.6 ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
+    white-space: pre-wrap; max-height: 55vh; overflow-y: auto;
+    display: none; z-index: 20;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div class="overlay-label">21 · Water / Caustics Shader</div>
+<a class="home-link" href="../">&larr; lab 首页</a>
+<div class="error-overlay" id="errorOverlay"></div>
+
+<script id="vert-shader" type="x-shader/x-vertex">
+attribute vec2 aPosition;
+void main() {
+  gl_Position = vec4(aPosition, 0.0, 1.0);
+}
+</script>
+
+<script id="frag-shader" type="x-shader/x-fragment">
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 uResolution;
+uniform float uTime;
+uniform vec4 uRipples[4]; /* xy = center (water space), z = startTime, w = intensity */
+
+/* ---- hash + value noise ---- */
+float hash21(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+float noise2D(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+float fbm(vec2 p) {
+  const int OCT = 5;
+  float v = 0.0;
+  float a = 0.5;
+  float freq = 1.0;
+  for (int i = 0; i < OCT; i++) {
+    v += a * noise2D(p * freq);
+    freq *= 2.0;
+    a *= 0.5;
+  }
+  return v;
+}
+
+/* ---- water surface height: multi-layer flowing noise + ripples ---- */
+float waterHeight(vec2 p, float t) {
+  float h = 0.0;
+  h += fbm(p + vec2(t * 0.15, t * 0.10)) * 0.5;
+  h += fbm(p * 2.3 + vec2(-t * 0.20, t * 0.17)) * 0.25;
+  h += fbm(p * 5.1 + vec2(t * 0.25, -t * 0.30)) * 0.125;
+
+  const int MAXR = 4;
+  for (int i = 0; i < MAXR; i++) {
+    vec4 r = uRipples[i];
+    float age = t - r.z;
+    if (r.w > 0.001 && age >= 0.0 && age < 4.0) {
+      float d = distance(p, r.xy);
+      float wave = sin(d * 28.0 - age * 7.0);
+      float decay = exp(-d * 1.8) * exp(-age * 0.7) * r.w;
+      h += wave * decay * 0.12;
+    }
+  }
+  return h;
+}
+
+/* ---- normal via finite differences ---- */
+vec3 waterNormal(vec2 p, float t) {
+  float e = 0.006;
+  float h = waterHeight(p, t);
+  float hx = waterHeight(p + vec2(e, 0.0), t);
+  float hy = waterHeight(p + vec2(0.0, e), t);
+  return normalize(vec3((h - hx) / e, 1.0, (h - hy) / e));
+}
+
+/* ---- caustics: layered noise ridges ---- */
+float caustics(vec2 p, float t) {
+  vec2 q = p * 2.5 + vec2(t * 0.22, t * 0.16);
+  float c = 0.0;
+  c += abs(noise2D(q) - 0.5) * 2.0;
+  c += abs(noise2D(q * 2.0 + vec2(t * 0.12, -t * 0.14)) - 0.5) * 1.0;
+  c += abs(noise2D(q * 4.0 + vec2(-t * 0.08, t * 0.10)) - 0.5) * 0.5;
+  c = 1.0 - clamp(c, 0.0, 1.0);
+  return pow(c, 4.0);
+}
+
+void main() {
+  vec2 p = (gl_FragCoord.xy - 0.5 * uResolution) / uResolution.y;
+  float t = uTime;
+  vec2 wp = p * 2.0;
+
+  vec3 normal = waterNormal(wp, t);
+
+  /* view direction tilted by screen position for edge fresnel */
+  vec3 viewDir = normalize(vec3(p * 0.4, 1.0));
+
+  /* Schlick fresnel */
+  float ndotv = clamp(dot(viewDir, normal), 0.0, 1.0);
+  float fresnel = pow(1.0 - ndotv, 5.0);
+  fresnel = mix(0.03, 1.0, fresnel);
+
+  /* brand purple sky reflection vs deep cyan refraction */
+  vec3 skyColor    = vec3(0.45, 0.22, 0.78);
+  vec3 deepColor   = vec3(0.0, 0.22, 0.35);
+  vec3 shallowColor = vec3(0.06, 0.48, 0.52);
+
+  vec3 refrColor = mix(shallowColor, deepColor, 0.55);
+  vec3 reflColor = skyColor;
+
+  vec3 waterColor = mix(refrColor, reflColor, fresnel);
+
+  /* caustics on the virtual floor, distorted by surface normal */
+  float caust = caustics(wp + normal.xz * 0.3, t);
+  waterColor += vec3(0.25, 0.55, 0.45) * caust * (1.0 - fresnel) * 0.6;
+
+  /* specular highlight (sun shimmer) */
+  vec3 lightDir = normalize(vec3(0.3, 0.8, 0.5));
+  vec3 halfDir = normalize(lightDir + viewDir);
+  float spec = pow(max(dot(normal, halfDir), 0.0), 80.0);
+  waterColor += vec3(1.0, 0.95, 0.9) * spec * 1.3;
+
+  /* high-frequency sparkle */
+  float sparkle = pow(clamp(noise2D(wp * 35.0 + vec2(t * 1.8, -t * 1.5)), 0.0, 1.0), 25.0);
+  waterColor += vec3(0.9, 0.95, 1.0) * sparkle * 0.4;
+
+  /* vignette */
+  float vig = 1.0 - dot(p * 0.55, p * 0.55);
+  waterColor *= mix(0.55, 1.0, clamp(vig, 0.0, 1.0));
+
+  /* gentle gamma */
+  waterColor = pow(max(waterColor, 0.0), vec3(0.85));
+
+  gl_FragColor = vec4(waterColor, 1.0);
+}
+</script>
+
+<script>
+(function () {
+  'use strict';
+
+  var canvas = document.getElementById('canvas');
+  var errorOverlay = document.getElementById('errorOverlay');
+
+  function showError(msg) {
+    console.error(msg);
+    errorOverlay.textContent = msg;
+    errorOverlay.style.display = 'block';
+  }
+
+  var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+  if (!gl) {
+    showError('WebGL not supported by this browser.');
+    return;
+  }
+
+  /* ---- shader compile with error surfacing ---- */
+  function compileShader(type, source) {
+    var shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      var infoLog = gl.getShaderInfoLog(shader);
+      gl.deleteShader(shader);
+      throw new Error('Shader compile error:\n' + infoLog);
+    }
+    return shader;
+  }
+
+  var vertSrc = document.getElementById('vert-shader').textContent;
+  var fragSrc = document.getElementById('frag-shader').textContent;
+
+  var program, aPositionLoc, uResolutionLoc, uTimeLoc, uRipplesLoc;
+
+  try {
+    var vs = compileShader(gl.VERTEX_SHADER, vertSrc);
+    var fs = compileShader(gl.FRAGMENT_SHADER, fragSrc);
+    program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      var linkLog = gl.getProgramInfoLog(program);
+      throw new Error('Program link error:\n' + linkLog);
+    }
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+  } catch (e) {
+    showError(e.message);
+    return;
+  }
+
+  aPositionLoc = gl.getAttribLocation(program, 'aPosition');
+  uResolutionLoc = gl.getUniformLocation(program, 'uResolution');
+  uTimeLoc = gl.getUniformLocation(program, 'uTime');
+  uRipplesLoc = gl.getUniformLocation(program, 'uRipples');
+
+  /* ---- fullscreen quad ---- */
+  var buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1, -1,  1, -1,  -1,  1,
+    -1,  1,  1, -1,   1,  1
+  ]), gl.STATIC_DRAW);
+
+  /* ---- time + ripple state ---- */
+  var startTime = performance.now();
+  var currentTime = 0;
+
+  var ripples = [
+    [0, 0, -1, 0],
+    [0, 0, -1, 0],
+    [0, 0, -1, 0],
+    [0, 0, -1, 0]
+  ];
+  var rippleIndex = 0;
+  var rippleData = new Float32Array(16);
+
+  function addRipple(clientX, clientY) {
+    var rect = canvas.getBoundingClientRect();
+    var x = clientX - rect.left;
+    var y = clientY - rect.top;
+    /* flip y: gl_FragCoord is bottom-up, mouse is top-down */
+    var fy = rect.height - y;
+    var px = (x - 0.5 * rect.width) / rect.height;
+    var py = (fy - 0.5 * rect.height) / rect.height;
+    var wx = px * 2.0;
+    var wy = py * 2.0;
+    ripples[rippleIndex][0] = wx;
+    ripples[rippleIndex][1] = wy;
+    ripples[rippleIndex][2] = currentTime;
+    ripples[rippleIndex][3] = 1.0;
+    rippleIndex = (rippleIndex + 1) % 4;
+  }
+
+  function flushRippleData() {
+    for (var i = 0; i < 4; i++) {
+      rippleData[i * 4 + 0] = ripples[i][0];
+      rippleData[i * 4 + 1] = ripples[i][1];
+      rippleData[i * 4 + 2] = ripples[i][2];
+      rippleData[i * 4 + 3] = ripples[i][3];
+    }
+    return rippleData;
+  }
+
+  /* ---- input ---- */
+  canvas.addEventListener('click', function (e) {
+    addRipple(e.clientX, e.clientY);
+  });
+
+  var lastMoveTime = 0;
+  canvas.addEventListener('mousemove', function (e) {
+    var now = performance.now();
+    if (now - lastMoveTime > 180) {
+      lastMoveTime = now;
+      addRipple(e.clientX, e.clientY);
+    }
+  });
+
+  canvas.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    if (e.touches.length > 0) {
+      addRipple(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', function (e) {
+    e.preventDefault();
+    var now = performance.now();
+    if (now - lastMoveTime > 180 && e.touches.length > 0) {
+      lastMoveTime = now;
+      addRipple(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  }, { passive: false });
+
+  /* ---- resize with DPR clamp ---- */
+  function resize() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    var w = Math.max(1, Math.floor(window.innerWidth * dpr));
+    var h = Math.max(1, Math.floor(window.innerHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+
+  /* ---- render ---- */
+  function render() {
+    gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.enableVertexAttribArray(aPositionLoc);
+    gl.vertexAttribPointer(aPositionLoc, 2, gl.FLOAT, false, 0, 0);
+
+    gl.uniform2f(uResolutionLoc, canvas.width, canvas.height);
+    gl.uniform1f(uTimeLoc, currentTime);
+    gl.uniform4fv(uRipplesLoc, flushRippleData());
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  /* ---- prefers-reduced-motion: freeze time, render one frame ---- */
+  var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (reducedMotion) {
+    currentTime = 3.0;
+    resize();
+    render();
+    window.addEventListener('resize', function () {
+      resize();
+      render();
+    });
+  } else {
+    function loop() {
+      currentTime = (performance.now() - startTime) / 1000;
+      resize();
+      render();
+      requestAnimationFrame(loop);
+    }
+    resize();
+    loop();
+  }
+})();
+</script>
+</body>
+</html>
