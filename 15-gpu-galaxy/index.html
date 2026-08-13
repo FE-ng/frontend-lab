@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>15 · GPU Galaxy</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{height:100%}
+    body{overflow:hidden;background:#050015;font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;color:#fff}
+    canvas{display:block;position:fixed;inset:0}
+    .overlay{position:fixed;top:32px;left:36px;z-index:10;pointer-events:none}
+    .overlay h1{
+      font-size:28px;font-weight:700;letter-spacing:-.02em;
+      background:linear-gradient(90deg,#7c5cff,#18d6c9,#ff2e9a);
+      -webkit-background-clip:text;background-clip:text;
+      -webkit-text-fill-color:transparent;color:transparent;
+    }
+    .home-link{position:fixed;top:36px;right:36px;z-index:10;color:rgba(255,255,255,.6);text-decoration:none;font-size:14px;transition:color .2s}
+    .home-link:hover{color:#fff}
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div class="overlay"><h1>15 · GPU Galaxy</h1></div>
+  <a class="home-link" href="../">&#8592; lab &#39318;&#39029;</a>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    /* ---------- config ---------- */
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const POINT_COUNT    = reducedMotion ? 4000 : 9000;
+    const ARMS           = 5;
+    const GALAXY_RADIUS  = 8;
+    const SPIN           = 0.85;   // logarithmic spiral tightness
+    const SCATTER        = 0.28;   // Gaussian scatter amplitude
+    const SCATTER_POWER  = 2.6;    // scatter grows with radius
+    const ROT_SPEED      = reducedMotion ? 0.0004 : 0.0012;
+
+    /* ---------- helpers ---------- */
+    // Box-Muller Gaussian
+    function gaussian() {
+      let u = 0, v = 0;
+      while (u === 0) u = Math.random();
+      while (v === 0) v = Math.random();
+      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+
+    function lerp(a, b, t) { return a + (b - a) * t; }
+
+    // brand palette  #7c5cff -> #18d6c9 -> #ff2e9a
+    const C0 = [0x7c / 255, 0x5c / 255, 0xff / 255]; // inner  purple
+    const C1 = [0x18 / 255, 0xd6 / 255, 0xc9 / 255]; // mid    teal
+    const C2 = [0xff / 255, 0x2e / 255, 0x9a / 255]; // outer  pink
+
+    function galaxyColor(t) {
+      let r, g, b;
+      if (t < 0.5) {
+        const k = t * 2;
+        r = lerp(C0[0], C1[0], k);
+        g = lerp(C0[1], C1[1], k);
+        b = lerp(C0[2], C1[2], k);
+      } else {
+        const k = (t - 0.5) * 2;
+        r = lerp(C1[0], C2[0], k);
+        g = lerp(C1[1], C2[1], k);
+        b = lerp(C1[2], C2[2], k);
+      }
+      // white-hot galactic core
+      if (t < 0.1) {
+        const w = t / 0.1;
+        r = lerp(1.0, r, w);
+        g = lerp(0.95, g, w);
+        b = lerp(1.0, b, w);
+      }
+      return [r, g, b];
+    }
+
+    /* ---------- renderer / scene / camera ---------- */
+    const canvas   = document.getElementById('c');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x050015);
+
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 5, 12);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance   = 3;
+    controls.maxDistance   = 30;
+
+    /* ---------- galaxy geometry ---------- */
+    const geometry  = new THREE.BufferGeometry();
+    const positions = new Float32Array(POINT_COUNT * 3);
+    const colors    = new Float32Array(POINT_COUNT * 3);
+    const scales    = new Float32Array(POINT_COUNT);
+
+    for (let i = 0; i < POINT_COUNT; i++) {
+      const i3 = i * 3;
+
+      // radius — power-biased toward center
+      const r = Math.pow(Math.random(), 1.7) * GALAXY_RADIUS;
+
+      // arm offset + logarithmic spiral angle
+      const arm       = (i % ARMS) / ARMS * Math.PI * 2;
+      const spinAngle = Math.log(Math.max(r, 0.02) + 1) * SPIN;
+      const angle     = arm + spinAngle;
+
+      // Gaussian scatter, scales with radius
+      const s  = SCATTER * Math.pow(r / GALAXY_RADIUS, SCATTER_POWER);
+      const rx = gaussian() * s * GALAXY_RADIUS;
+      const ry = gaussian() * s * 0.35 * GALAXY_RADIUS; // thin disk
+      const rz = gaussian() * s * GALAXY_RADIUS;
+
+      positions[i3]     = Math.cos(angle) * r + rx;
+      positions[i3 + 1] = ry;
+      positions[i3 + 2] = Math.sin(angle) * r + rz;
+
+      // vertex color by normalized radius
+      const t = r / GALAXY_RADIUS;
+      const c = galaxyColor(t);
+      colors[i3]     = c[0];
+      colors[i3 + 1] = c[1];
+      colors[i3 + 2] = c[2];
+
+      // per-point size variation
+      scales[i] = Math.random() * 1.8 + 0.7;
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('aColor',   new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute('aScale',   new THREE.BufferAttribute(scales, 1));
+
+    /* ---------- shader material ---------- */
+    const material = new THREE.ShaderMaterial({
+      vertexShader: /* glsl */ `
+        attribute vec3 aColor;
+        attribute float aScale;
+        varying vec3 vColor;
+        void main() {
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = aScale * (300.0 / -mvPosition.z);
+          gl_Position = projectionMatrix * mvPosition;
+          vColor = aColor;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying vec3 vColor;
+        void main() {
+          float d = length(gl_PointCoord - vec2(0.5));
+          if (d > 0.5) discard;
+          float alpha = smoothstep(0.5, 0.0, d);
+          gl_FragColor = vec4(vColor * 1.25, alpha);
+        }
+      `,
+      transparent: true,
+      depthWrite:  false,
+      blending:    THREE.AdditiveBlending,
+    });
+
+    const galaxy = new THREE.Points(geometry, material);
+    scene.add(galaxy);
+
+    /* ---------- resize ---------- */
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    });
+
+    /* ---------- animation loop ---------- */
+    function animate() {
+      requestAnimationFrame(animate);
+      galaxy.rotation.y += ROT_SPEED;
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

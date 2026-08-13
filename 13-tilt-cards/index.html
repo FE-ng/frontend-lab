@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>13 · 3D Tilt Cards — Aurora Glass</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --c-magenta: #ff4dca;
+    --c-cyan: #6affff;
+    --c-violet: #b46bff;
+    --c-amber: #ffc857;
+    --c-lime: #8effc4;
+    --bg: #050018;
+    --ink: #eef2ff;
+    --ink-dim: #8b90c0;
+  }
+
+  html, body {
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ============ 极光背景(多层 screen 叠加 + 漂移) ============ */
+  .aurora {
+    position: fixed;
+    inset: -25%;
+    z-index: 0;
+    pointer-events: none;
+    mix-blend-mode: screen;
+    filter: blur(56px);
+    will-change: transform;
+    animation: drift 24s ease-in-out infinite alternate;
+  }
+  .aurora--1 {
+    background:
+      radial-gradient(circle at 18% 28%, rgba(255, 77, 202, 0.55), transparent 42%),
+      radial-gradient(circle at 82% 18%, rgba(106, 255, 255, 0.5), transparent 46%),
+      radial-gradient(circle at 50% 82%, rgba(180, 107, 255, 0.6), transparent 50%);
+  }
+  .aurora--2 {
+    background:
+      radial-gradient(circle at 72% 62%, rgba(255, 200, 87, 0.36), transparent 44%),
+      radial-gradient(circle at 8% 72%, rgba(142, 255, 196, 0.4), transparent 50%);
+    animation-duration: 30s;
+    animation-delay: -6s;
+  }
+  @keyframes drift {
+    0%   { transform: translate3d(0, 0, 0) scale(1) rotate(0deg); opacity: 0.85; }
+    50%  { opacity: 1; }
+    100% { transform: translate3d(4%, -3%, 0) scale(1.16) rotate(8deg); opacity: 0.7; }
+  }
+
+  /* ============ 顶部 overlay ============ */
+  .overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 30;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 30px clamp(20px, 4vw, 56px);
+    pointer-events: none;
+  }
+  .overlay > * { pointer-events: auto; }
+  .brand {
+    font-size: clamp(20px, 3.2vw, 34px);
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    line-height: 1.1;
+    background: linear-gradient(90deg, var(--c-magenta), var(--c-cyan), var(--c-violet), var(--c-magenta));
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: shimmer 7s linear infinite;
+  }
+  .brand small {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    -webkit-text-fill-color: var(--ink-dim);
+    margin-top: 6px;
+  }
+  @keyframes shimmer {
+    0%   { background-position: 0% 0; }
+    100% { background-position: 200% 0; }
+  }
+  .home-link {
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    color: var(--c-cyan);
+    text-decoration: none;
+    padding: 10px 16px;
+    border: 1px solid rgba(106, 255, 255, 0.3);
+    border-radius: 999px;
+    background: rgba(106, 255, 255, 0.06);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: background .25s, border-color .25s, transform .25s;
+  }
+  .home-link:hover {
+    background: rgba(106, 255, 255, 0.16);
+    border-color: rgba(106, 255, 255, 0.7);
+    transform: translateX(-3px);
+  }
+
+  /* ============ 主舞台 ============ */
+  main {
+    position: relative;
+    z-index: 5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 130px 24px 80px;
+  }
+
+  .lede {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+  .lede h2 {
+    font-size: clamp(11px, 1.4vw, 13px);
+    letter-spacing: 0.4em;
+    text-transform: uppercase;
+    color: var(--c-violet);
+    margin-bottom: 12px;
+  }
+  .lede p {
+    font-size: clamp(13px, 1.8vw, 16px);
+    color: var(--ink-dim);
+    max-width: 560px;
+    line-height: 1.6;
+  }
+
+  /* ============ 卡片网格 ============ */
+  .grid {
+    width: min(1080px, 100%);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 22px;
+    perspective: 1000px;
+    perspective-origin: 50% 40%;
+  }
+
+  .card {
+    position: relative;
+    border-radius: 20px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    overflow: hidden;
+    transform-style: preserve-3d;
+    will-change: transform;
+    transition: transform .6s cubic-bezier(.34, 1.56, .64, 1), box-shadow .4s ease;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+    background:
+      linear-gradient(150deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    cursor: pointer;
+  }
+  .card.is-tilting {
+    transition: none;
+    box-shadow: 0 22px 60px rgba(123, 92, 255, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.22);
+  }
+
+  .card-thumb {
+    position: relative;
+    height: 130px;
+    overflow: hidden;
+  }
+  .card-thumb::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.35) 0%, transparent 38%, transparent 62%, rgba(255, 255, 255, 0.12) 100%),
+      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 22px);
+    mix-blend-mode: overlay;
+  }
+  .thumb-1 { background: linear-gradient(135deg, #ff4dca, #6affff); }
+  .thumb-2 { background: linear-gradient(135deg, #b46bff, #ffc857); }
+  .thumb-3 { background: linear-gradient(135deg, #ff2e9a, #00f0ff); }
+  .thumb-4 { background: linear-gradient(135deg, #8effc4, #7b5cff); }
+
+  .card-body {
+    padding: 18px 20px 22px;
+    position: relative;
+  }
+  .card-idx {
+    font-size: 11px;
+    letter-spacing: 0.25em;
+    font-weight: 700;
+    color: var(--c-cyan);
+    opacity: 0.85;
+  }
+  .card-body h3 {
+    margin: 8px 0 6px;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .card-body p {
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    line-height: 1.55;
+  }
+
+  /* ============ 高光 glare(跟随鼠标,径向渐变 + CSS 变量定位) ============ */
+  .card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(circle 220px at var(--mx, 50%) var(--my, 50%),
+      rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.1) 35%, transparent 65%);
+    opacity: 0;
+    transition: opacity .45s ease;
+    pointer-events: none;
+    mix-blend-mode: soft-light;
+  }
+  .card.is-tilting::after { opacity: 1; transition: none; }
+
+  /* ============ 磁吸按钮 ============ */
+  .magnetic-zone {
+    margin-top: 56px;
+    padding: 60px 80px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .magnetic-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 34px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #050018;
+    text-decoration: none;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--c-cyan), var(--c-violet));
+    cursor: pointer;
+    will-change: transform;
+    transition: transform .5s cubic-bezier(.34, 1.56, .64, 1), box-shadow .3s ease;
+    box-shadow: 0 8px 30px rgba(123, 92, 255, 0.45);
+  }
+  .magnetic-btn.is-magnetic {
+    transition: none;
+    box-shadow: 0 14px 44px rgba(106, 255, 255, 0.55);
+  }
+  .magnetic-btn .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #050018;
+    opacity: 0.7;
+  }
+
+  .hint {
+    position: fixed;
+    bottom: 22px; left: 0; right: 0;
+    text-align: center;
+    z-index: 20;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    color: rgba(255, 255, 255, 0.28);
+    pointer-events: none;
+    text-transform: uppercase;
+  }
+
+  /* ============ 响应式 ============ */
+  @media (max-width: 640px) {
+    .grid { gap: 16px; }
+    .card-thumb { height: 110px; }
+    .magnetic-zone { padding: 40px 30px; }
+    .overlay { padding: 22px 18px; }
+    main { padding: 110px 16px 70px; }
+  }
+
+  /* ============ prefers-reduced-motion:全静态 ============ */
+  @media (prefers-reduced-motion: reduce) {
+    .aurora { animation: none; }
+    .brand { animation: none; }
+    .card,
+    .card.is-tilting {
+      transition: none !important;
+      transform: none !important;
+    }
+    .card::after { opacity: 0.18; transition: none; mix-blend-mode: normal; }
+    .magnetic-btn,
+    .magnetic-btn.is-magnetic { transition: none; transform: none !important; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- 极光背景 -->
+  <div class="aurora aurora--1"></div>
+  <div class="aurora aurora--2"></div>
+
+  <!-- 顶部 overlay -->
+  <header class="overlay">
+    <div class="brand">
+      13 · 3D Tilt Cards
+      <small>Perspective · Glare · Magnetic</small>
+    </div>
+    <a class="home-link" href="../">← lab 首页</a>
+  </header>
+
+  <main>
+    <div class="lede">
+      <h2>Chapter 13 · Glass Tilt Grid</h2>
+      <p>玻璃卡按鼠标相对位置算 rotateX/rotateY,径向高光跟随光标,磁吸按钮被指针牵引。移开即弹性回正。</p>
+    </div>
+
+    <section class="grid" id="grid">
+
+      <article class="card" data-tilt>
+        <div class="card-thumb thumb-1"></div>
+        <div class="card-body">
+          <span class="card-idx">01</span>
+          <h3>Aurora 视差 Hero</h3>
+          <p>极光背景 + Canvas 星图 + preserve-3d 分层视差。</p>
+        </div>
+      </article>
+
+      <article class="card" data-tilt>
+        <div class="card-thumb thumb-2"></div>
+        <div class="card-body">
+          <span class="card-idx">02</span>
+          <h3>GLSL Aurora</h3>
+          <p>手写 fragment shader,域翘曲 FBM 噪声流体极光。</p>
+        </div>
+      </article>
+
+      <article class="card" data-tilt>
+        <div class="card-thumb thumb-3"></div>
+        <div class="card-body">
+          <span class="card-idx">03</span>
+          <h3>Three.js 粒子球</h3>
+          <p>GPU instancing + UnrealBloom 后处理辉光。</p>
+        </div>
+      </article>
+
+      <article class="card" data-tilt>
+        <div class="card-thumb thumb-4"></div>
+        <div class="card-body">
+          <span class="card-idx">04</span>
+          <h3>Flow Field 流场</h3>
+          <p>值噪声驱动 700 粒子轨迹,拖尾合成。</p>
+        </div>
+      </article>
+
+    </section>
+
+    <div class="magnetic-zone" id="magneticZone">
+      <a class="magnetic-btn" id="magneticBtn" href="../">
+        <span class="dot"></span>
+        Hover Me · Magnetic
+      </a>
+    </div>
+  </main>
+
+  <div class="hint">rotateX / rotateY · --mx / --my glare · magnetic pull</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ============================================================
+   * Tilt + Glare
+   * - 鼠标在卡上时,按相对位置(0..1)算 rotateY(x 驱动)/ rotateX(y 驱动,反向)
+   * - perspective 1000px 设在 .grid 上
+   * - 高光用 ::after 径向渐变,CSS 变量 --mx/--my 定位
+   * - 进入时去掉 transition 实时跟随;离开时加回弹性 transition 回正
+   * ============================================================ */
+  var MAX_ANGLE = 12;   // 最大倾斜角(deg)
+  var GLARE_RADIUS = 220;
+
+  function bindTilt(card) {
+    if (reduceMotion) return;
+
+    card.addEventListener("pointerenter", function () {
+      card.classList.add("is-tilting");
+    });
+
+    card.addEventListener("pointermove", function (e) {
+      var rect = card.getBoundingClientRect();
+      var px = (e.clientX - rect.left) / rect.width;   // 0..1
+      var py = (e.clientY - rect.top) / rect.height;   // 0..1
+
+      // x 决定绕 Y 轴转, y 决定绕 X 轴转(反向:鼠标向上 → 卡片上沿前倾)
+      var ry = (px - 0.5) * 2 * MAX_ANGLE;
+      var rx = -(py - 0.5) * 2 * MAX_ANGLE;
+      var tz = 18; // 微微抬升,增强离地感
+
+      card.style.transform =
+        "perspective(1000px) rotateX(" + rx.toFixed(2) + "deg) rotateY(" + ry.toFixed(2) + "deg) translateZ(" + tz + "px)";
+
+      // 高光定位(相对卡片左上角的 px)
+      var mx = e.clientX - rect.left;
+      var my = e.clientY - rect.top;
+      card.style.setProperty("--mx", mx + "px");
+      card.style.setProperty("--my", my + "px");
+      card.style.setProperty("--glare-r", GLARE_RADIUS + "px");
+    });
+
+    card.addEventListener("pointerleave", function () {
+      card.classList.remove("is-tilting");
+      card.style.transform = "";   // 清空 → 走 CSS 的弹性 transition 回正
+    });
+  }
+
+  var cards = document.querySelectorAll("[data-tilt]");
+  for (var i = 0; i < cards.length; i++) {
+    bindTilt(cards[i]);
+  }
+
+  /* ============================================================
+   * Magnetic 按钮
+   * - 在 zone 内移动时,按钮朝鼠标方向位移(距离 * factor)
+   * - 越靠近中心吸引越强;离开 zone 弹性回正
+   * ============================================================ */
+  function bindMagnetic(zone, btn) {
+    if (reduceMotion) return;
+
+    var PULL = 0.35;   // 牵引系数
+
+    zone.addEventListener("pointermove", function (e) {
+      var rect = btn.getBoundingClientRect();
+      var cx = rect.left + rect.width / 2;
+      var cy = rect.top + rect.height / 2;
+      var dx = e.clientX - cx;
+      var dy = e.clientY - cy;
+
+      btn.classList.add("is-magnetic");
+      btn.style.transform =
+        "translate(" + (dx * PULL).toFixed(2) + "px, " + (dy * PULL).toFixed(2) + "px)";
+    });
+
+    zone.addEventListener("pointerleave", function () {
+      btn.classList.remove("is-magnetic");
+      btn.style.transform = "";
+    });
+  }
+
+  var zone = document.getElementById("magneticZone");
+  var btn = document.getElementById("magneticBtn");
+  if (zone && btn) bindMagnetic(zone, btn);
+})();
+</script>
+</body>
+</html>

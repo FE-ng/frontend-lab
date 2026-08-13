@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>12 · Audio Visualizer</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --neon-cyan: #00f0ff;
+    --neon-magenta: #ff2db8;
+    --neon-violet: #8a2be2;
+    --bg: #05060f;
+  }
+
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: var(--bg);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+    color: #eef;
+  }
+
+  #canvas { display: block; width: 100vw; height: 100vh; position: fixed; inset: 0; z-index: 0; }
+
+  /* ---- overlay title ---- */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 20px 28px; pointer-events: none;
+  }
+  .topbar h1 {
+    font-size: 16px; font-weight: 300; letter-spacing: .12em;
+    color: rgba(255,255,255,.88); text-shadow: 0 0 12px rgba(0,240,255,.6);
+    pointer-events: auto;
+  }
+  .topbar .home {
+    pointer-events: auto;
+    color: rgba(255,255,255,.55); text-decoration: none;
+    font-size: 13px; letter-spacing: .08em; transition: color .25s;
+  }
+  .topbar .home:hover { color: var(--neon-cyan); }
+
+  /* ---- center status ---- */
+  .status {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); z-index: 5;
+    font-size: 13px; letter-spacing: .15em; text-align: center;
+    color: rgba(255,255,255,.4); pointer-events: none;
+    transition: opacity .5s ease; white-space: nowrap;
+  }
+
+  /* ---- controls ---- */
+  .controls {
+    position: fixed; bottom: 38px; left: 50%; transform: translateX(-50%);
+    z-index: 10; display: flex; gap: 14px;
+  }
+  .btn {
+    padding: 11px 26px; cursor: pointer; font-size: 13px; letter-spacing: .08em;
+    color: #ddd; background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.18); border-radius: 30px;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    transition: border-color .25s, box-shadow .25s, color .25s, background .25s;
+  }
+  .btn:hover {
+    border-color: var(--neon-cyan); color: var(--neon-cyan);
+    box-shadow: 0 0 22px rgba(0,240,255,.28);
+  }
+  .btn.active {
+    background: rgba(0,240,255,.14); border-color: var(--neon-cyan); color: var(--neon-cyan);
+  }
+
+  /* ---- toast ---- */
+  .toast {
+    position: fixed; top: 58px; left: 50%;
+    transform: translateX(-50%) translateY(-16px); z-index: 20;
+    padding: 10px 22px; font-size: 13px; letter-spacing: .04em;
+    background: rgba(255,45,184,.14); border: 1px solid rgba(255,45,184,.5);
+    border-radius: 10px; color: #ff7dd2;
+    opacity: 0; transition: opacity .35s, transform .35s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 520px) {
+    .topbar { padding: 14px 18px; }
+    .topbar h1 { font-size: 14px; }
+    .btn { padding: 10px 18px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div class="topbar">
+    <h1>12 · Audio Visualizer</h1>
+    <a href="../" class="home">← lab 首页</a>
+  </div>
+  <div class="status" id="status">点击下方按钮开启麦克风</div>
+  <div class="controls">
+    <button class="btn" id="micBtn" type="button">开启麦克风</button>
+    <button class="btn" id="demoBtn" type="button">演示音(合成)</button>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ==================== Config ====================
+  var FFT_SIZE = 2048;
+  var NUM_BARS = 128;
+  var PARTICLE_COUNT = 64;
+  var DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var FRAME_SKIP = reduceMotion ? 2 : 0; // reduced-motion: draw every 3rd frame
+
+  // ==================== Canvas setup ====================
+  var canvas = document.getElementById('canvas');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0, CX = 0, CY = 0, RADIUS = 0;
+
+  function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    CX = W / 2;
+    CY = H / 2;
+    RADIUS = Math.max(60, Math.min(W, H) * 0.22);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // ==================== Web Audio ====================
+  var audioCtx = null;
+  var analyser = null;
+  var dataArray = null;
+  var source = null;
+  var stream = null;
+  var oscNodes = [];
+  var mode = 'idle'; // idle | mic | demo
+
+  var statusEl = document.getElementById('status');
+  var micBtn = document.getElementById('micBtn');
+  var demoBtn = document.getElementById('demoBtn');
+  var toast = document.getElementById('toast');
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(function () { toast.classList.remove('show'); }, 3500);
+  }
+
+  function setStatus(text) {
+    statusEl.textContent = text || '';
+    statusEl.style.opacity = text ? '1' : '0';
+  }
+
+  function initAudio() {
+    if (audioCtx) return;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AC();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = FFT_SIZE;
+    analyser.smoothingTimeConstant = 0.82;
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+  }
+
+  function stopCurrent() {
+    if (stream) {
+      stream.getTracks().forEach(function (t) { t.stop(); });
+      stream = null;
+    }
+    oscNodes.forEach(function (n) {
+      try { n.stop(); } catch (e) {}
+      try { n.disconnect(); } catch (e) {}
+    });
+    oscNodes = [];
+    if (source) {
+      try { source.disconnect(); } catch (e) {}
+      source = null;
+    }
+    if (analyser) {
+      try { analyser.disconnect(); } catch (e) {} // disconnect analyser -> destination
+    }
+    micBtn.classList.remove('active');
+    demoBtn.classList.remove('active');
+    mode = 'idle';
+  }
+
+  // ---- Mic source: getUserMedia -> MediaStreamAudioSourceNode -> analyser ----
+  function startMic() {
+    setStatus('');
+    initAudio();
+    var resumeP = audioCtx.state === 'suspended' ? audioCtx.resume() : Promise.resolve();
+    resumeP.then(function () {
+      stopCurrent();
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showToast('浏览器不支持麦克风，已切换到演示音');
+        startDemo();
+        return;
+      }
+      navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      }).then(function (s) {
+        stream = s;
+        source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser); // source -> analyser (mic: no destination to avoid feedback)
+        mode = 'mic';
+        micBtn.classList.add('active');
+        setStatus('麦克风直播中');
+      }).catch(function (err) {
+        showToast('麦克风不可用：' + (err && err.name ? err.name : 'denied') + '，已切换到演示音');
+        startDemo();
+      });
+    });
+  }
+
+  // ---- Demo source: OscillatorNode(s) -> analyser -> destination ----
+  function startDemo() {
+    setStatus('');
+    initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    stopCurrent();
+
+    var masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.10;
+    masterGain.connect(analyser);
+    analyser.connect(audioCtx.destination); // let user hear the synthesized tone
+
+    // stacked oscillators with LFO amplitude modulation for rich, moving spectrum
+    var baseFreqs = [110, 174, 261, 349, 440, 523, 698];
+    baseFreqs.forEach(function (freq, i) {
+      var osc = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      var lfo = audioCtx.createOscillator();
+      var lfoGain = audioCtx.createGain();
+
+      osc.type = i % 2 === 0 ? 'sawtooth' : 'square';
+      osc.frequency.value = freq;
+
+      lfo.frequency.value = 0.3 + i * 0.17;
+      lfoGain.gain.value = 0.35;
+      lfo.connect(lfoGain);
+      lfoGain.connect(gain.gain);
+
+      gain.gain.value = 0.45;
+      osc.connect(gain);
+      gain.connect(masterGain);
+      osc.start();
+      lfo.start();
+      oscNodes.push(osc, lfo);
+    });
+
+    // sweeping sine for额外低频/高频变化
+    var sweepOsc = audioCtx.createOscillator();
+    var sweepGain = audioCtx.createGain();
+    sweepOsc.type = 'sine';
+    sweepGain.gain.value = 0.28;
+    sweepOsc.connect(sweepGain);
+    sweepGain.connect(masterGain);
+    sweepOsc.start();
+
+    var sweepLfo = audioCtx.createOscillator();
+    var sweepLfoGain = audioCtx.createGain();
+    sweepLfo.frequency.value = 0.07;
+    sweepLfoGain.gain.value = 420;
+    sweepLfo.connect(sweepLfoGain);
+    sweepLfoGain.connect(sweepOsc.frequency);
+    sweepLfo.start();
+
+    oscNodes.push(sweepOsc, sweepLfo);
+
+    mode = 'demo';
+    demoBtn.classList.add('active');
+    setStatus('演示音播放中');
+  }
+
+  micBtn.addEventListener('click', function () {
+    if (mode === 'mic') {
+      stopCurrent();
+      setStatus('点击下方按钮开启麦克风');
+    } else {
+      startMic();
+    }
+  });
+  demoBtn.addEventListener('click', function () {
+    if (mode === 'demo') {
+      stopCurrent();
+      setStatus('点击下方按钮开启麦克风');
+    } else {
+      startDemo();
+    }
+  });
+
+  // ==================== Particles ====================
+  var particles = [];
+  function initParticles() {
+    particles.length = 0;
+    for (var i = 0; i < PARTICLE_COUNT; i++) {
+      particles.push({
+        angle: (i / PARTICLE_COUNT) * Math.PI * 2 + Math.random() * 0.2,
+        speed: 0.0008 + Math.random() * 0.0035,
+        orbit: 1.0 + Math.random() * 0.5, // multiplier on base orbit radius
+        size: 1 + Math.random() * 2.4,
+        hue: 180 + Math.random() * 150,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+  }
+  initParticles();
+
+  // ==================== Helpers ====================
+  // frequency-band gradient: cyan -> violet -> magenta
+  function barColor(t) {
+    var r, g, b;
+    if (t < 0.5) {
+      var k = t * 2;
+      r = Math.round(0 + k * 138);
+      g = Math.round(240 - k * 194);
+      b = Math.round(255 - k * 45);
+    } else {
+      var k2 = (t - 0.5) * 2;
+      r = Math.round(138 + k2 * 117);
+      g = Math.round(46 - k2 * 3);
+      b = Math.round(210 + k2 * 38);
+    }
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+
+  // ==================== Render loop ====================
+  var frame = 0;
+
+  function draw() {
+    requestAnimationFrame(draw);
+    frame++;
+    if (FRAME_SKIP && frame % (FRAME_SKIP + 1) !== 0) return;
+
+    // trail fade
+    ctx.fillStyle = 'rgba(5, 6, 15, 0.16)';
+    ctx.fillRect(0, 0, W, H);
+
+    if (mode === 'idle' || !analyser) {
+      drawIdle();
+      return;
+    }
+
+    // ---- read frequency data: source -> analyser -> getByteFrequencyData ----
+    analyser.getByteFrequencyData(dataArray);
+
+    var usableLen = Math.floor(dataArray.length * 0.6); // high bins usually empty
+    var avg = 0;
+    for (var a = 0; a < usableLen; a++) avg += dataArray[a];
+    avg = avg / usableLen / 255; // 0..1 overall volume
+
+    // ---- circular spectrum bars + mirror ----
+    var bars = NUM_BARS;
+    var step = usableLen / bars;
+    var barWidth = Math.max(1.5, (Math.PI * 2 * RADIUS) / bars * 0.55);
+
+    for (var i = 0; i < bars; i++) {
+      var s0 = Math.floor(i * step);
+      var s1 = Math.floor((i + 1) * step);
+      var sum = 0;
+      for (var j = s0; j < s1; j++) sum += dataArray[j] || 0;
+      var val = sum / Math.max(1, s1 - s0) / 255; // 0..1
+
+      var angle = (i / bars) * Math.PI * 2 - Math.PI / 2;
+      var barLen = val * RADIUS * 1.25 + 2;
+      var innerR = RADIUS;
+      var outerR = RADIUS + barLen;
+
+      var cosA = Math.cos(angle), sinA = Math.sin(angle);
+      var x1 = CX + cosA * innerR, y1 = CY + sinA * innerR;
+      var x2 = CX + cosA * outerR, y2 = CY + sinA * outerR;
+
+      // mirror bar extends inward
+      var mirrorR = RADIUS - barLen * 0.45;
+      var mx = CX + cosA * mirrorR, my = CY + sinA * mirrorR;
+
+      var col = barColor(i / bars);
+
+      // main radial bar with gradient
+      var grad = ctx.createLinearGradient(x1, y1, x2, y2);
+      grad.addColorStop(0, col.replace('rgb', 'rgba').replace(')', ',0.92)'));
+      grad.addColorStop(1, col.replace('rgb', 'rgba').replace(')', ',0.08)'));
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = barWidth;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+
+      // glow pass
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = col;
+      ctx.strokeStyle = col.replace('rgb', 'rgba').replace(')', ',0.35)');
+      ctx.lineWidth = barWidth * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // inward mirror
+      ctx.strokeStyle = col.replace('rgb', 'rgba').replace(')', ',0.22)');
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(mx, my);
+      ctx.stroke();
+    }
+
+    // ---- pulsing core orb ----
+    var energy = Math.min(1, avg * 3.2);
+    var pulseR = RADIUS * 0.62 + avg * RADIUS * 0.34;
+
+    // outer halo
+    var halo = ctx.createRadialGradient(CX, CY, 0, CX, CY, pulseR * 2);
+    halo.addColorStop(0, 'rgba(0,240,255,' + (0.14 + energy * 0.22) + ')');
+    halo.addColorStop(0.45, 'rgba(138,43,226,' + (0.07 + energy * 0.14) + ')');
+    halo.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(CX, CY, pulseR * 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // core
+    var core = ctx.createRadialGradient(CX, CY, 0, CX, CY, pulseR);
+    core.addColorStop(0, 'rgba(255,255,255,' + (0.55 + energy * 0.4) + ')');
+    core.addColorStop(0.25, 'rgba(0,240,255,' + (0.5 + energy * 0.3) + ')');
+    core.addColorStop(0.65, 'rgba(138,43,226,0.22)');
+    core.addColorStop(1, 'rgba(255,45,184,0)');
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(CX, CY, pulseR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ---- outer ring particles ----
+    var t = frame * 0.016;
+    var baseOrbit = RADIUS + 70;
+    for (var p = 0; p < particles.length; p++) {
+      var pt = particles[p];
+      pt.angle += pt.speed * (reduceMotion ? 0.4 : 1);
+      var pr = baseOrbit * pt.orbit + Math.sin(t + pt.phase) * 18 + avg * 45;
+      var px = CX + Math.cos(pt.angle) * pr;
+      var py = CY + Math.sin(pt.angle) * pr;
+      var alpha = 0.28 + avg * 0.45 + Math.sin(t * 2 + pt.phase) * 0.1;
+      if (alpha < 0.08) alpha = 0.08;
+
+      ctx.fillStyle = 'hsla(' + pt.hue + ',100%,66%,' + alpha + ')';
+      ctx.beginPath();
+      ctx.arc(px, py, pt.size + avg * 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ring outline
+    ctx.strokeStyle = 'rgba(0,240,255,' + (0.06 + energy * 0.09) + ')';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(CX, CY, RADIUS, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function drawIdle() {
+    var t = frame * 0.02;
+    var breath = Math.sin(t) * 0.5 + 0.5;
+
+    ctx.strokeStyle = 'rgba(0,240,255,' + (0.09 + breath * 0.1) + ')';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(CX, CY, RADIUS, 0, Math.PI * 2);
+    ctx.stroke();
+
+    var glow = ctx.createRadialGradient(CX, CY, 0, CX, CY, RADIUS * 0.55);
+    glow.addColorStop(0, 'rgba(0,240,255,' + (0.04 + breath * 0.05) + ')');
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(CX, CY, RADIUS * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+
+    // faint orbiting dots in idle too
+    var baseOrbit = RADIUS + 70;
+    for (var p = 0; p < particles.length; p++) {
+      var pt = particles[p];
+      pt.angle += pt.speed * 0.3;
+      var pr = baseOrbit * pt.orbit;
+      var px = CX + Math.cos(pt.angle) * pr;
+      var py = CY + Math.sin(pt.angle) * pr;
+      ctx.fillStyle = 'hsla(' + pt.hue + ',100%,66%,' + (0.12 + breath * 0.08) + ')';
+      ctx.beginPath();
+      ctx.arc(px, py, pt.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  draw();
+})();
+</script>
+</body>
+</html>

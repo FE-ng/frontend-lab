@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>14 · Generative Spirograph</title>
+<style>
+  :root {
+    --bg: #0a0a14;
+    --fg: #e0e0f0;
+    --muted: #7a7a96;
+    --accent: #5ec8f5;
+    --glass-bg: rgba(255,255,255,0.05);
+    --glass-border: rgba(255,255,255,0.09);
+  }
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  #cv {
+    display: block;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    width: 100vw; height: 100vh;
+  }
+  .topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 10;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 22px 30px;
+    pointer-events: none;
+  }
+  .topbar h1 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--fg);
+    text-shadow: 0 0 24px rgba(94,200,245,0.25);
+  }
+  .topbar a {
+    pointer-events: auto;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 13px;
+    transition: color 0.25s ease;
+  }
+  .topbar a:hover { color: var(--accent); }
+
+  .panel {
+    position: fixed;
+    bottom: 22px;
+    right: 22px;
+    z-index: 10;
+    width: 250px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px) saturate(1.3);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    padding: 18px 20px 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+  }
+  .panel .row { margin-bottom: 11px; }
+  .panel .row:last-child { margin-bottom: 0; }
+  .panel label {
+    display: block;
+    font-size: 10.5px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 3px;
+    overflow: hidden;
+  }
+  .panel .val {
+    float: right;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    text-transform: none;
+  }
+  .panel input[type=range] {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 3px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    outline: none;
+  }
+  .panel input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(94,200,245,0.6);
+    transition: transform 0.1s ease;
+  }
+  .panel input[type=range]::-webkit-slider-thumb:active { transform: scale(1.35); }
+  .panel input[type=range]::-moz-range-thumb {
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer; border: none;
+    box-shadow: 0 0 10px rgba(94,200,245,0.6);
+  }
+  .panel button {
+    width: 100%;
+    padding: 7px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    color: var(--fg);
+    font-size: 11px;
+    cursor: pointer;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    transition: all 0.2s ease;
+  }
+  .panel button:hover {
+    background: rgba(255,90,90,0.14);
+    border-color: rgba(255,90,90,0.28);
+    color: #ffaaaa;
+  }
+  @media (max-width: 560px) {
+    .panel { width: calc(100vw - 28px); right: 14px; bottom: 14px; }
+    .topbar { padding: 16px 20px; }
+    .topbar h1 { font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="topbar">
+  <h1>14 · Generative Spirograph</h1>
+  <a href="../">← lab 首页</a>
+</div>
+<div class="panel">
+  <div class="row">
+    <label>R — 大圆<span class="val" id="vR">220</span></label>
+    <input type="range" id="sR" min="50" max="380" value="220" step="1">
+  </div>
+  <div class="row">
+    <label>r — 小圆<span class="val" id="vr">65</span></label>
+    <input type="range" id="sr" min="5" max="200" value="65" step="1">
+  </div>
+  <div class="row">
+    <label>d — 笔距<span class="val" id="vd">125</span></label>
+    <input type="range" id="sd" min="5" max="300" value="125" step="1">
+  </div>
+  <div class="row">
+    <label>速度<span class="val" id="vSpd">1.0</span></label>
+    <input type="range" id="sSpd" min="0.1" max="3" value="1.0" step="0.1">
+  </div>
+  <div class="row">
+    <label>色相<span class="val" id="vHue">200</span></label>
+    <input type="range" id="sHue" min="0" max="360" value="200" step="1">
+  </div>
+  <div class="row">
+    <button id="btnClear">清空画布</button>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+
+  var canvas = document.getElementById("cv");
+  var ctx = canvas.getContext("2d");
+
+  var params = { R: 220, r: 65, d: 125, speed: 1.0, hue: 200 };
+
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var W = 0, H = 0, cx = 0, cy = 0;
+  var t = 0;
+  var lastPt = null;
+
+  var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cx = W / 2;
+    cy = H / 2;
+    lastPt = null;
+  }
+
+  function spiroPt(tt) {
+    var Rr = params.R - params.r;
+    var k = Rr / params.r;
+    var x = cx + Rr * Math.cos(tt) + params.d * Math.cos(k * tt);
+    var y = cy + Rr * Math.sin(tt) - params.d * Math.sin(k * tt);
+    return { x: x, y: y };
+  }
+
+  var HUE_T = 10;
+
+  function drawFrame() {
+    var baseDt = 0.03 * params.speed;
+    var dt = reducedMotion ? baseDt * 0.1 : baseDt;
+    var steps = 16;
+    var stepDt = dt / steps;
+
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = "round";
+
+    var p0 = lastPt;
+    if (!p0) p0 = spiroPt(t);
+
+    for (var i = 0; i < steps; i++) {
+      t += stepDt;
+      var p1 = spiroPt(t);
+      var hue = (params.hue + t * HUE_T) % 360;
+      if (hue < 0) hue += 360;
+      var hs = hue.toFixed(1);
+      ctx.strokeStyle = "hsla(" + hs + ",100%,60%,0.5)";
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = "hsla(" + hs + ",100%,55%,0.7)";
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.stroke();
+      p0 = p1;
+    }
+
+    lastPt = p0;
+    requestAnimationFrame(drawFrame);
+  }
+
+  function clearCanvas() {
+    ctx.globalCompositeOperation = "source-over";
+    ctx.shadowBlur = 0;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    t = 0;
+    lastPt = null;
+  }
+
+  function bindSlider(sid, vid, key, fmt, resetCurve) {
+    var sl = document.getElementById(sid);
+    var vl = document.getElementById(vid);
+    sl.addEventListener("input", function () {
+      var v = parseFloat(sl.value);
+      params[key] = v;
+      vl.textContent = fmt ? fmt(v) : String(v);
+      if (resetCurve) {
+        t = 0;
+        lastPt = null;
+      }
+    });
+  }
+
+  bindSlider("sR", "vR", "R", null, true);
+  bindSlider("sr", "vr", "r", null, true);
+  bindSlider("sd", "vd", "d", null, true);
+  bindSlider("sSpd", "vSpd", "speed", function (v) { return v.toFixed(1); }, false);
+  bindSlider("sHue", "vHue", "hue", null, false);
+
+  document.getElementById("btnClear").addEventListener("click", clearCanvas);
+
+  window.addEventListener("resize", resize);
+
+  resize();
+  requestAnimationFrame(drawFrame);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>08 · Metaballs / Gooey Filter · frontend-lab</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  :root {
+    --bg: #05060d;
+    --purple: #7c5cff;
+    --teal: #18d6c9;
+    --pink: #ff2e9a;
+  }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: #eef2ff;
+    font: 15px/1.6 -apple-system, "Segoe UI", "Pingfang SC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- 舞台 ---- */
+  .stage {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  /* ---- Gooey 滤镜容器 ---- */
+  /* 核心:blur 软化圆的边缘 → contrast 把半透明像素推向全透明或不透明
+     相邻圆模糊后的重叠区域 alpha 叠加超过阈值 → 被 contrast"焊"在一起 = 融球 */
+  .gooey {
+    position: absolute;
+    inset: 0;
+    background: var(--bg);
+    filter: blur(20px) contrast(25);
+  }
+
+  /* ---- 球体 ---- */
+  .ball-wrap {
+    position: absolute;
+    will-change: transform;
+  }
+  .ball {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    will-change: transform;
+  }
+
+  .b1 { width: 180px; height: 180px; left: 28%; top: 38%;
+        background: radial-gradient(circle at 35% 30%, #b4a3ff, var(--purple) 65%);
+        animation: float1 14s ease-in-out infinite; }
+  .b2 { width: 140px; height: 140px; left: 52%; top: 28%;
+        background: radial-gradient(circle at 35% 30%, #6ef7e6, var(--teal) 65%);
+        animation: float2 11s ease-in-out infinite; }
+  .b3 { width: 130px; height: 130px; left: 44%; top: 58%;
+        background: radial-gradient(circle at 35% 30%, #ff77bf, var(--pink) 65%);
+        animation: float3 13s ease-in-out infinite; }
+  .b4 { width: 100px; height: 100px; left: 66%; top: 50%;
+        background: radial-gradient(circle at 35% 30%, #b4a3ff, var(--purple) 65%);
+        animation: float4 9s ease-in-out infinite; }
+  .b5 { width: 160px; height: 160px; left: 18%; top: 55%;
+        background: radial-gradient(circle at 35% 30%, #6ef7e6, var(--teal) 65%);
+        animation: float5 16s ease-in-out infinite; }
+  .b6 { width: 90px; height: 90px; left: 60%; top: 70%;
+        background: radial-gradient(circle at 35% 30%, #ff77bf, var(--pink) 65%);
+        animation: float6 10s ease-in-out infinite; }
+  .b7 { width: 110px; height: 110px; left: 38%; top: 20%;
+        background: radial-gradient(circle at 35% 30%, #b4a3ff, var(--purple) 65%);
+        animation: float7 15s ease-in-out infinite; }
+  .b8 { width: 80px; height: 80px; left: 72%; top: 32%;
+        background: radial-gradient(circle at 35% 30%, #6ef7e6, var(--teal) 65%);
+        animation: float1 17s ease-in-out infinite reverse; }
+
+  /* ---- 漂浮动画:每条路径不同,营造有机感 ---- */
+  @keyframes float1 {
+    0%,100% { transform: translate(0,0); }
+    25%     { transform: translate(35px,-28px); }
+    50%     { transform: translate(-20px,30px); }
+    75%     { transform: translate(25px,18px); }
+  }
+  @keyframes float2 {
+    0%,100% { transform: translate(0,0); }
+    33%     { transform: translate(-40px,22px); }
+    66%     { transform: translate(30px,-35px); }
+  }
+  @keyframes float3 {
+    0%,100% { transform: translate(0,0) scale(1); }
+    50%     { transform: translate(28px,-30px) scale(1.08); }
+  }
+  @keyframes float4 {
+    0%,100% { transform: translate(0,0); }
+    50%     { transform: translate(-30px,-25px); }
+  }
+  @keyframes float5 {
+    0%,100% { transform: translate(0,0) scale(1); }
+    25%     { transform: translate(30px,20px) scale(0.95); }
+    50%     { transform: translate(50px,-30px) scale(1.05); }
+    75%     { transform: translate(10px,25px) scale(0.98); }
+  }
+  @keyframes float6 {
+    0%,100% { transform: translate(0,0); }
+    25%     { transform: translate(45px,-15px); }
+    50%     { transform: translate(15px,-40px); }
+    75%     { transform: translate(-25px,-10px); }
+  }
+  @keyframes float7 {
+    0%,100% { transform: translate(0,0); }
+    33%     { transform: translate(-25px,35px); }
+    66%     { transform: translate(35px,20px); }
+  }
+
+  /* ---- 覆盖层 ---- */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .overlay h1 {
+    font-size: clamp(26px, 5vw, 52px);
+    font-weight: 800;
+    letter-spacing: -.03em;
+    background: linear-gradient(120deg, #fff, var(--purple) 50%, var(--teal));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 2px 30px rgba(0,0,0,.5);
+    padding: 0 20px;
+  }
+  .overlay .hint {
+    margin-top: 14px;
+    color: #8b93b5;
+    font-size: clamp(12px, 1.6vw, 14px);
+    letter-spacing: .06em;
+  }
+
+  /* ---- 返回链接 ---- */
+  .back {
+    position: fixed;
+    top: 22px;
+    right: 26px;
+    z-index: 20;
+    color: var(--teal);
+    text-decoration: none;
+    font-size: 13px;
+    letter-spacing: .05em;
+    border: 1px solid rgba(24,214,201,.3);
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: rgba(5,6,13,.6);
+    backdrop-filter: blur(8px);
+    transition: border-color .2s, color .2s, background .2s;
+  }
+  .back:hover {
+    color: #fff;
+    border-color: var(--teal);
+    background: rgba(24,214,201,.12);
+  }
+
+  /* ---- 响应式:小屏缩小球 ---- */
+  @media (max-width: 600px) {
+    .ball-wrap { transform: scale(.7); }
+  }
+
+  /* ---- 无障碍:减少动画 ---- */
+  @media (prefers-reduced-motion: reduce) {
+    .ball { animation: none !important; }
+    .overlay .hint::after { content: " (animations paused)"; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="gooey" id="gooey">
+      <div class="ball-wrap" data-ball><div class="ball b1"></div></div>
+      <div class="ball-wrap" data-ball><div class="ball b2"></div></div>
+      <div class="ball-wrap" data-ball><div class="ball b3"></div></div>
+      <div class="ball-wrap" data-ball><div class="ball b4"></div></div>
+      <div class="ball-wrap" data-ball><div class="ball b5"></div></div>
+      <div class="ball-wrap" data-ball><div class="ball b6"></div></div>
+      <div class="ball-wrap" data-ball><div class="ball b7"></div></div>
+      <div class="ball-wrap" data-ball><div class="ball b8"></div></div>
+    </div>
+
+    <div class="overlay">
+      <h1>08 · Metaballs / Gooey Filter</h1>
+      <p class="hint">move your cursor — the orbs are pulled by gravity</p>
+    </div>
+  </div>
+
+  <a class="back" href="../">← lab 首页</a>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var wraps = document.querySelectorAll("[data-ball]");
+      var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      // 无障碍:减少动画模式下不启动 JS 引力
+      if (reduced) return;
+
+      var mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+      var centers = [];   // 每个球的基础中心点(CSS 定位)
+      var current = [];   // 当前 JS 偏移(含 lerp 平滑)
+
+      function readCenters() {
+        // 临时清除 transform,读取 CSS 基础位置,再恢复
+        for (var i = 0; i < wraps.length; i++) {
+          wraps[i].style.transform = "translate(0,0)";
+        }
+        for (var j = 0; j < wraps.length; j++) {
+          var r = wraps[j].getBoundingClientRect();
+          if (!centers[j]) centers[j] = { x: 0, y: 0 };
+          centers[j].x = r.left + r.width / 2;
+          centers[j].y = r.top + r.height / 2;
+          if (!current[j]) current[j] = { x: 0, y: 0, tx: 0, ty: 0 };
+        }
+      }
+
+      window.addEventListener("pointermove", function (e) {
+        mouse.x = e.clientX;
+        mouse.y = e.clientY;
+      }, { passive: true });
+
+      window.addEventListener("resize", readCenters);
+
+      var MAX_DIST = 380;   // 引力作用半径(px)
+      var PULL = 120;       // 最大牵引位移(px)
+      var EASE = 0.06;      // lerp 缓动系数
+
+      function tick() {
+        for (var i = 0; i < wraps.length; i++) {
+          var dx = mouse.x - centers[i].x;
+          var dy = mouse.y - centers[i].y;
+          var dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < MAX_DIST && dist > 0.5) {
+            var force = (1 - dist / MAX_DIST) * PULL;
+            current[i].tx = (dx / dist) * force;
+            current[i].ty = (dy / dist) * force;
+          } else {
+            current[i].tx = 0;
+            current[i].ty = 0;
+          }
+
+          // lerp 平滑趋近目标,避免生硬跳变
+          current[i].x += (current[i].tx - current[i].x) * EASE;
+          current[i].y += (current[i].ty - current[i].y) * EASE;
+
+          wraps[i].style.transform =
+            "translate(" + current[i].x.toFixed(2) + "px," + current[i].y.toFixed(2) + "px)";
+        }
+        requestAnimationFrame(tick);
+      }
+
+      // 初始化(延迟一帧让 CSS 动画先布局)
+      requestAnimationFrame(function () {
+        readCenters();
+        requestAnimationFrame(tick);
+      });
+    })();
+  </script>
+</body>
+</html>
