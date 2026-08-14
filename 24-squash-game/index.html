@@ -74,8 +74,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(W(), H());
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0c1024);
-scene.fog = new THREE.Fog(0x0c1024, 28, 55);
+scene.background = new THREE.Color(0x202848);
+scene.fog = new THREE.Fog(0x202848, 42, 95);
 
 const camera = new THREE.PerspectiveCamera(55, W() / H(), 0.1, 120);
 camera.position.set(0, 5.2, -12.8);
@@ -86,20 +86,20 @@ const FW_W = 6.4, OUT_Y = 4.57, TIN_Y = 0.48, LEN = 9.75;
 const HALF = FW_W / 2;
 
 // 灯光（明亮玻璃场）
-scene.add(new THREE.AmbientLight(0x7a82a8, 0.9));
-const key = new THREE.DirectionalLight(0xffffff, 1.15);
+scene.add(new THREE.AmbientLight(0x9aa2c8, 1.35));
+const key = new THREE.DirectionalLight(0xffffff, 1.55);
 key.position.set(-4, 11, -6);
 scene.add(key);
-const warm = new THREE.DirectionalLight(0xffe6c0, 0.5);
+const warm = new THREE.DirectionalLight(0xffe6c0, 0.75);
 warm.position.set(3, 9, -3);
 scene.add(warm);
-const p1 = new THREE.PointLight(0x7c5cff, 1.5, 28);
+const p1 = new THREE.PointLight(0x7c5cff, 1.9, 30);
 p1.position.set(0, 6, -1);
 scene.add(p1);
-const p2 = new THREE.PointLight(0x18d6c9, 1.1, 24);
+const p2 = new THREE.PointLight(0x18d6c9, 1.5, 26);
 p2.position.set(4.5, 3.5, -7);
 scene.add(p2);
-const p3 = new THREE.PointLight(0xff2e9a, 0.85, 20);
+const p3 = new THREE.PointLight(0xff2e9a, 1.2, 22);
 p3.position.set(-4, 2.5, -8);
 scene.add(p3);
 
@@ -154,7 +154,7 @@ function court() {
   // 地板（浅色）
   const fl = new THREE.Mesh(
     new THREE.PlaneGeometry(FW_W, LEN),
-    new THREE.MeshStandardMaterial({ color: 0x4a5478, roughness: 0.55, metalness: 0.18 })
+    new THREE.MeshStandardMaterial({ color: 0x6e7896, roughness: 0.5, metalness: 0.2 })
   );
   fl.rotation.x = -Math.PI / 2;
   fl.position.set(0, 0, -LEN / 2);
