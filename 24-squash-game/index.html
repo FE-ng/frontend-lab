@@ -68,86 +68,123 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(W(), H());
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05060d);
-scene.fog = new THREE.Fog(0x05060d, 13, 32);
+scene.background = new THREE.Color(0x0c1024);
+scene.fog = new THREE.Fog(0x0c1024, 28, 55);
 
-const camera = new THREE.PerspectiveCamera(55, W() / H(), 0.1, 100);
-camera.position.set(0, 4.3, -11.4);
-camera.lookAt(0, 2, 0);
+const camera = new THREE.PerspectiveCamera(55, W() / H(), 0.1, 120);
+camera.position.set(0, 5.2, -12.8);
+camera.lookAt(0, 2, -3);
 
 // 球场尺寸（米）
 const FW_W = 6.4, OUT_Y = 4.57, TIN_Y = 0.48, LEN = 9.75;
 const HALF = FW_W / 2;
 
-// 灯光
-scene.add(new THREE.AmbientLight(0x4a5080, 0.55));
-const key = new THREE.DirectionalLight(0xffffff, 0.7);
-key.position.set(-3, 9, -5);
+// 灯光（明亮玻璃场）
+scene.add(new THREE.AmbientLight(0x7a82a8, 0.9));
+const key = new THREE.DirectionalLight(0xffffff, 1.15);
+key.position.set(-4, 11, -6);
 scene.add(key);
-const p1 = new THREE.PointLight(0x7c5cff, 1.3, 26);
+const warm = new THREE.DirectionalLight(0xffe6c0, 0.5);
+warm.position.set(3, 9, -3);
+scene.add(warm);
+const p1 = new THREE.PointLight(0x7c5cff, 1.5, 28);
 p1.position.set(0, 6, -1);
 scene.add(p1);
-const p2 = new THREE.PointLight(0x18d6c9, 0.9, 22);
-p2.position.set(4.5, 3, -7);
+const p2 = new THREE.PointLight(0x18d6c9, 1.1, 24);
+p2.position.set(4.5, 3.5, -7);
 scene.add(p2);
-const p3 = new THREE.PointLight(0xff2e9a, 0.7, 18);
-p3.position.set(-4, 2, -8);
+const p3 = new THREE.PointLight(0xff2e9a, 0.85, 20);
+p3.position.set(-4, 2.5, -8);
 scene.add(p3);
 
-// 球场
+// 球场（明亮玻璃场 + 完整标线，参考 WSF 规格）
 function court() {
   const g = new THREE.Group();
-  const plane = (w, h, color, op) => new THREE.Mesh(
+  const SVC = 1.78, BACK_Y = 2.13, SHORT_Z = -4.26; // service line / 后墙高 / short line(z)
+  const glass = (w, h, op, color = 0xb9c2e6) => new THREE.Mesh(
     new THREE.PlaneGeometry(w, h),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, side: THREE.DoubleSide })
   );
-  // 前墙
-  const fw = plane(FW_W, OUT_Y, 0x7c5cff, 0.09);
+  const ln = (pts, c, op = 1) => new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts.map(p => new THREE.Vector3(...p))),
+    new THREE.LineBasicMaterial({ color: c, transparent: op < 1, opacity: op })
+  );
+
+  // 前墙（out=4.57）
+  const fw = glass(FW_W, OUT_Y, 0.12);
   fw.position.set(0, OUT_Y / 2, 0);
   g.add(fw);
-  // tin 红条
-  const tin = new THREE.Mesh(
-    new THREE.PlaneGeometry(FW_W, TIN_Y),
-    new THREE.MeshBasicMaterial({ color: 0x4a1322, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
-  );
-  tin.position.set(0, TIN_Y / 2, 0);
+  // 前墙合法目标区高亮（tin 与 out 之间的淡青发光面)
+  const tz = glass(FW_W, OUT_Y - TIN_Y, 0.07, 0x18d6c9);
+  tz.position.set(0, (OUT_Y + TIN_Y) / 2, 0.01);
+  g.add(tz);
+  // tin 鲜红条（前墙底部，加粗醒目）
+  const tin = glass(FW_W, TIN_Y, 0.9, 0xe6394f);
+  tin.position.set(0, TIN_Y / 2, 0.02);
   g.add(tin);
-  // 侧墙
-  const sw1 = plane(LEN, OUT_Y, 0x18d6c9, 0.045);
-  sw1.position.set(HALF, OUT_Y / 2, -LEN / 2);
-  sw1.rotation.y = -Math.PI / 2;
-  g.add(sw1);
-  const sw2 = sw1.clone();
-  sw2.position.x = -HALF;
-  sw2.rotation.y = Math.PI / 2;
-  g.add(sw2);
-  // 后墙
-  const bw = plane(FW_W, OUT_Y, 0xff2e9a, 0.05);
-  bw.position.set(0, OUT_Y / 2, -LEN);
+
+  // 侧墙：斜顶梯形（前 4.57 → 后 2.13），用 BufferGeometry 明确顶点避免旋转歧义
+  function sideWall(x) {
+    const v = new Float32Array([
+      x, 0, 0,   x, 0, -LEN,   x, BACK_Y, -LEN,
+      x, 0, 0,   x, BACK_Y, -LEN,   x, OUT_Y, 0
+    ]);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+    geo.computeVertexNormal();
+    return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xb9c2e6, transparent: true, opacity: 0.10, side: THREE.DoubleSide }));
+  }
+  g.add(sideWall(HALF));
+  g.add(sideWall(-HALF));
+
+  // 后墙（2.13 高）+ tin
+  const bw = glass(FW_W, BACK_Y, 0.12);
+  bw.position.set(0, BACK_Y / 2, -LEN);
   g.add(bw);
-  // 地板
+  const bTin = glass(FW_W, TIN_Y, 0.85, 0xe6394f);
+  bTin.position.set(0, TIN_Y / 2, -LEN - 0.02);
+  g.add(bTin);
+
+  // 地板（浅色）
   const fl = new THREE.Mesh(
     new THREE.PlaneGeometry(FW_W, LEN),
-    new THREE.MeshStandardMaterial({ color: 0x080b1c, roughness: 0.75, metalness: 0.15 })
+    new THREE.MeshStandardMaterial({ color: 0x4a5478, roughness: 0.55, metalness: 0.18 })
   );
   fl.rotation.x = -Math.PI / 2;
   fl.position.set(0, 0, -LEN / 2);
   g.add(fl);
 
-  // 标线
-  const ln = (pts, c) => new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints(pts.map(p => new THREE.Vector3(...p))),
-    new THREE.LineBasicMaterial({ color: c })
-  );
-  g.add(ln([[-HALF, OUT_Y, 0.01], [HALF, OUT_Y, 0.01]], 0x7c5cff));   // out line
-  g.add(ln([[-HALF, TIN_Y, 0.01], [HALF, TIN_Y, 0.01]], 0xff2e9a));   // tin line
-  g.add(ln([[-HALF, 0.02, -LEN], [HALF, 0.02, -LEN]], 0x18d6c9));     // 后墙底线
-  g.add(ln([[-HALF, 0.02, -LEN * 0.32], [HALF, 0.02, -LEN * 0.32]], 0x18d6c9)); // short line
-  // 击球区地板提示（后场半透明框）
-  const sz = plane(FW_W, LEN * 0.42, 0x18d6c9, 0.04);
+  // 两个服务区淡填充（后场左/右四分之一）
+  const boxDepth = LEN - 4.26, boxZ = (SHORT_Z + (-LEN)) / 2;
+  const boxL = glass(HALF, boxDepth, 0.05, 0x7c5cff);
+  boxL.rotation.x = -Math.PI / 2; boxL.position.set(-HALF / 2, 0.012, boxZ); g.add(boxL);
+  const boxR = glass(HALF, boxDepth, 0.05, 0x18d6c9);
+  boxR.rotation.x = -Math.PI / 2; boxR.position.set(HALF / 2, 0.012, boxZ); g.add(boxR);
+
+  // 击球区（玩家后场）淡框提示
+  const sz = glass(FW_W, LEN * 0.42, 0.05, 0x18d6c9);
   sz.rotation.x = -Math.PI / 2;
-  sz.position.set(0, 0.015, -LEN + LEN * 0.21);
+  sz.position.set(0, 0.013, -LEN + LEN * 0.21);
   g.add(sz);
+
+  // —— 标线 ——
+  // 前墙 out / service / tin 顶
+  g.add(ln([[-HALF, OUT_Y, 0.03], [HALF, OUT_Y, 0.03]], 0x7c5cff));
+  g.add(ln([[-HALF, SVC, 0.03], [HALF, SVC, 0.03]], 0xcdd3f5, 0.5));
+  g.add(ln([[-HALF, TIN_Y, 0.03], [HALF, TIN_Y, 0.03]], 0xe6394f));
+  // 侧墙斜 out line（沿梯形顶边，前高→后高）左右各一
+  g.add(ln([[HALF, OUT_Y, 0], [HALF, BACK_Y, -LEN]], 0x7c5cff));
+  g.add(ln([[-HALF, OUT_Y, 0], [-HALF, BACK_Y, -LEN]], 0x7c5cff));
+  // 后墙 out / tin 顶
+  g.add(ln([[-HALF, BACK_Y, -LEN - 0.03], [HALF, BACK_Y, -LEN - 0.03]], 0x7c5cff));
+  g.add(ln([[-HALF, TIN_Y, -LEN - 0.03], [HALF, TIN_Y, -LEN - 0.03]], 0xe6394f));
+  // 地板 short line（横）/ half-court（纵）/ 四周 outline
+  g.add(ln([[-HALF, 0.02, SHORT_Z], [HALF, 0.02, SHORT_Z]], 0x18d6c9));
+  g.add(ln([[0, 0.02, SHORT_Z], [0, 0.02, -LEN]], 0x18d6c9, 0.6));
+  g.add(ln([[-HALF, 0.02, 0], [HALF, 0.02, 0]], 0x18d6c9, 0.6));
+  g.add(ln([[-HALF, 0.02, 0], [-HALF, 0.02, -LEN]], 0x18d6c9, 0.6));
+  g.add(ln([[HALF, 0.02, 0], [HALF, 0.02, -LEN]], 0x18d6c9, 0.6));
+  g.add(ln([[-HALF, 0.02, -LEN], [HALF, 0.02, -LEN]], 0x18d6c9, 0.6));
   return g;
 }
 scene.add(court());
@@ -367,8 +404,8 @@ function tick(now) {
 
   if (state.sway) {
     camera.position.x = Math.sin(now * 0.0003) * 0.18;
-    camera.position.y = 4.3 + Math.sin(now * 0.0004) * 0.08;
-    camera.lookAt(0, 2, 0);
+    camera.position.y = 5.2 + Math.sin(now * 0.0004) * 0.08;
+    camera.lookAt(0, 2, -3);
   }
 
   renderer.render(scene, camera);
