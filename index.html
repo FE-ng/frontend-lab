@@ -6,6 +6,7 @@
 <title>frontend-lab · 炫酷效果集</title>
 <style>
   @property --hue { syntax: "<angle>"; inherits: true; initial-value: 220deg; }
+  @property --ring-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
   :root { --brand:#7c5cff; }
   * { box-sizing: border-box; margin: 0; }
   body { min-height: 100vh; background: #05060d; color: #eef2ff;
@@ -22,20 +23,26 @@
   .links { color: #5a637f; font-size: 12.5px; margin-bottom: 36px; }
   .links a { color: #18d6c9; text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,.2); margin-right: 14px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 18px; position: relative; }
-  a.demo { display: block; padding: 24px; border-radius: 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); text-decoration: none; color: inherit; transition: transform .18s, background .18s; backdrop-filter: blur(8px); }
+  a.demo { display: block; position: relative; overflow: hidden; padding: 24px; border-radius: 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); text-decoration: none; color: inherit; transition: transform .18s, background .18s; backdrop-filter: blur(8px); }
+  /* 卡内指针聚光:hover 时跟随鼠标的径向光晕,营造背景感知 */
+  a.demo::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .25s; background: radial-gradient(circle 200px at var(--mx,50%) var(--my,50%), rgba(124,92,255,.20), rgba(24,214,201,.06) 40%, transparent 65%); }
   a.demo:hover { transform: translateY(-2px); background: rgba(124,92,255,.08); }
-  /* 焦点环:渐变描边、透明心(mask),鼠标在卡片间移动时平滑滑过去 */
+  a.demo:hover::before { opacity: 1; }
+  /* 焦点环:旋转的锥形渐变描边、透明心(mask),鼠标在卡片间移动时平滑滑过去 */
   .focus-ring {
     position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 5;
     border-radius: 18px; border: 2px solid transparent; opacity: 0;
-    background: linear-gradient(120deg, #7c5cff, #18d6c9, #ff2e9a);
+    background: conic-gradient(from var(--ring-angle, 0deg), #7c5cff, #18d6c9, #ff2e9a, #ff2e9a, #7c5cff);
     -webkit-mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
             mask-composite: exclude;
     box-shadow: 0 0 24px rgba(124,92,255,.30);
+    animation: ring-spin 4s linear infinite;
     transition: transform .32s cubic-bezier(.22,.9,.3,1), width .32s cubic-bezier(.22,.9,.3,1), height .32s cubic-bezier(.22,.9,.3,1), opacity .18s;
   }
-  @media (hover: none) { .focus-ring { display: none; } }
+  @keyframes ring-spin { to { --ring-angle: 360deg; } }
+  @media (hover: none) { .focus-ring { display: none; } a.demo::before { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .focus-ring { animation: none; } body { animation: none; } }
   .demo .n { font-size: 12px; color: #18d6c9; letter-spacing: .15em; font-weight: 700; }
   .demo h2 { font-size: 20px; margin: 8px 0 6px; }
   .demo p { color: #8b93b5; font-size: 13.5px; }
@@ -259,6 +266,13 @@
       grid.addEventListener("pointerover", function (e) {
         var c = e.target.closest("a.demo");
         if (c && grid.contains(c)) move(c);
+      });
+      grid.addEventListener("pointermove", function (e) {
+        var c = e.target.closest("a.demo");
+        if (!c || !grid.contains(c)) return;
+        var r = c.getBoundingClientRect();
+        c.style.setProperty("--mx", (e.clientX - r.left) + "px");
+        c.style.setProperty("--my", (e.clientY - r.top) + "px");
       });
       grid.addEventListener("pointerleave", function () { ring.style.opacity = "0"; });
       addEventListener("resize", function () { var c = document.querySelector("a.demo:hover"); if (c) move(c); });
