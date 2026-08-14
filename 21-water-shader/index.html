@@ -92,14 +92,14 @@ float waterHeight(vec2 p, float t) {
   h += fbm(p + vec2(t * 0.15, t * 0.10)) * 0.5;
   h += fbm(p * 2.3 + vec2(-t * 0.20, t * 0.17)) * 0.25;
 
-  const int MAXR = 4;
+  const int MAXR = 2;
   for (int i = 0; i < MAXR; i++) {
     vec4 r = uRipples[i];
     float age = t - r.z;
     if (r.w > 0.001 && age >= 0.0 && age < 4.0) {
       float d = distance(p, r.xy);
       float wave = sin(d * 28.0 - age * 7.0);
-      float decay = exp(-d * 1.8) * exp(-age * 0.7) * r.w;
+      float decay = exp(-d * 1.8 - age * 0.7) * r.w;
       h += wave * decay * 0.12;
     }
   }
@@ -270,7 +270,7 @@ void main() {
     ripples[rippleIndex][1] = wy;
     ripples[rippleIndex][2] = currentTime;
     ripples[rippleIndex][3] = 1.0;
-    rippleIndex = (rippleIndex + 1) % 4;
+    rippleIndex = (rippleIndex + 1) % 2;
   }
 
   function flushRippleData() {
@@ -316,7 +316,7 @@ void main() {
   /* ---- resize with DPR clamp ---- */
   function resize() {
     /* 性能:渲染分辨率按最长边封顶 ~1400px(独立于 DPR/4K),shader 像素数恒定可控;水面本就柔和,略放大无碍 */
-    var MAXDIM = 1400;
+    var MAXDIM = 1100;
     var iw = window.innerWidth, ih = window.innerHeight;
     var sc = Math.min(1.0, MAXDIM / Math.max(iw, ih));
     var w = Math.max(1, Math.floor(iw * sc));
