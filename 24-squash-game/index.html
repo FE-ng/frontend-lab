@@ -43,7 +43,7 @@
   <ul>
     <li>把球打到前墙 <b>tin</b> 红条以上、<b>out line</b> 紫线以下才算合法。</li>
     <li>球落地只能 <b>弹一次</b>，第二次落地即失分回合结束。</li>
-    <li>球回到你身侧 <b>击球区</b>（后场）时按住鼠标蓄力，松开击球。</li>
+    <li>球从前墙 <b>弹回</b>后即可击球:可等<b>落地一次</b>后打,也可<b>直接截击</b>(volley);二次落地即失分。</li>
     <li>连续合法击球 = <b>streak</b>，违规会清零并记录最佳分。</li>
     <li>按 <b>R</b> 随时重新发球。</li>
   </ul>
@@ -237,6 +237,7 @@ const state = {
   streak: 0,
   best: 0,
   flying: false,
+  returned: false,
   ended: false,
   power: 0,
   charging: false,
@@ -257,6 +258,7 @@ function resetServe() {
   state.vel.set(0, 0, 0);
   state.bounces = 0;
   state.flying = false;
+  state.returned = false;
   state.ended = false;
   state.power = 0;
   state.charging = false;
@@ -289,10 +291,13 @@ function updateAim() {
 
 function canHit() {
   const z = state.pos.z, x = state.pos.x, y = state.pos.y;
-  return z < -4 && z > -LEN && Math.abs(x) < HALF + 0.2 && y < 5 && y > 0 && state.bounces <= 1;
+  const inCourt = Math.abs(x) < HALF + 0.3 && y > 0 && y < OUT_Y + 0.6 && z > -LEN - 0.5 && z < 0.3;
+  // 规则:球从前墙弹回(returned)后、二次落地前,场内任意位置可击;发球(at rest,flying=false)可击;
+  // 自己刚击出、还在飞向墙的球不能击(!returned 且 flying)。
+  return inCourt && state.bounces <= 1 && (!state.flying || state.returned);
 }
 function tryHit(power) {
-  if (!canHit()) { toast('球未在击球区', 'bad'); return; }
+  if (!canHit()) { toast(state.flying && !state.returned ? '球还没弹回' : '暂时不能击球', 'bad'); return; }
   if (power < 0.06) { toast('蓄力太弱', 'bad'); return; }
   const dir = new THREE.Vector3().subVectors(aimPt, state.pos);
   if (dir.z < 0.5) { toast('需瞄准前墙', 'bad'); return; }
@@ -300,6 +305,7 @@ function tryHit(power) {
   const speed = 9 + power * MAXV;
   state.vel.copy(dir.multiplyScalar(speed));
   state.bounces = 0;
+  state.returned = false;             // 新击出:尚未触前墙
   state.flying = true;
   state.streak++;
   toast('+1 好球', 'ok');
@@ -353,6 +359,7 @@ function physics(dt) {
       if (state.pos.y < TIN_Y) { endRound('出界：打到 tin'); return; }
       if (state.pos.y > OUT_Y) { endRound('出界：高于 out line'); return; }
       state.vel.z = -state.vel.z * RW;
+      state.returned = true;          // 球已触前墙弹回:此后可击(落地一次或直接截击)
       state.vel.x *= 0.9;
       state.vel.y *= 0.9;
     }
