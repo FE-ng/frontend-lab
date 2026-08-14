@@ -137,7 +137,7 @@ function court() {
     ]);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(v, 3));
-    geo.computeVertexNormal();
+    geo.computeVertexNormals();
     return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xb9c2e6, transparent: true, opacity: 0.10, side: THREE.DoubleSide }));
   }
   g.add(sideWall(HALF));
