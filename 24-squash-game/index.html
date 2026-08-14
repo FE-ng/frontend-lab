@@ -59,6 +59,12 @@
 </script>
 <script type="module">
 import * as THREE from 'three';
+// 全局错误兜底:任意运行时抛错都显式打到 toast,不再让脚本静默中断(按钮失灵)
+window.addEventListener('error', function (e) {
+  console.error(e);
+  var t = document.getElementById('toast');
+  if (t) { t.textContent = '⚠ ' + (e.message || (e.error && e.error.message) || '脚本错误'); t.className = 'ov on bad'; }
+});
 
 const W = () => window.innerWidth;
 const H = () => window.innerHeight;
@@ -187,7 +193,8 @@ function court() {
   g.add(ln([[-HALF, 0.02, -LEN], [HALF, 0.02, -LEN]], 0x18d6c9, 0.6));
   return g;
 }
-scene.add(court());
+try { scene.add(court()); }
+catch (e) { console.error('court build error', e); var _t = document.getElementById('toast'); if (_t) { _t.textContent = '场地构建错误: ' + e.message; _t.className = 'ov on bad'; } }
 
 // 球
 const BR = 0.08;
